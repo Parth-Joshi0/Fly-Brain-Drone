@@ -30,9 +30,22 @@ MASS = 1.0                 # kg
 HOVER_ALTITUDE = 1.2       # m - fixed altitude for v1 (FlyBrain doesn't control this yet)
 MIN_ALTITUDE = 0.3         # m - safety floor while flying
 MAX_ALTITUDE = 2.5         # m - safety ceiling
-MAX_SPEED = 1.5            # m/s - safety cap on commanded horizontal speed
+MAX_SPEED = 0.6            # m/s - safety cap on commanded horizontal speed (kept
+                            # low while avoidance is unreliable - see item 5)
 MAX_YAW_RATE = 1.5         # rad/s
 MAX_TILT = 0.30            # rad (~17 deg) - cap on how hard it'll lean over
+
+# Proximity safety net (item 7): overrides whatever the controller (manual
+# or autonomous) commanded if something is actually this close, using real
+# physics distance rather than the vision estimate - a last line of defense
+# independent of the reflex controller's own (imperfect) avoidance logic.
+SAFETY_DISTANCE = 0.6      # m - forward motion gets capped to 0 past this
+CRITICAL_DISTANCE = 0.3    # m - forces a backward retreat past this
+RETREAT_SPEED = 0.25       # m/s - how hard it backs away when critical
+ALTITUDE_STEP = 0.015      # m added to target altitude per move_up/move_down
+                            # call (main.py calls this once per ~30Hz decision
+                            # cycle while a key is held, so this is roughly a
+                            # 0.45 m/s manual climb/descend rate)
 
 ALT_KP, ALT_KI, ALT_KD = 10.0, 1.0, 9.0         # altitude error (m) -> thrust (N)
 VEL_TO_TILT_KP = 0.18                           # velocity error (m/s) -> target tilt (rad)
@@ -90,6 +103,8 @@ class PyBulletDrone(DroneInterface):
         self.emergency = False
         self._emergency_timer = 0
         self.emergency_stop_count = 0
+        self.min_obstacle_distance = None
+        self.safety_override = False
         self._alt_pid.reset()
         self._roll_pid.reset()
         self._pitch_pid.reset()
@@ -125,6 +140,14 @@ class PyBulletDrone(DroneInterface):
     def move_right(self, speed):
         self.target_vy = -max(-MAX_SPEED, min(MAX_SPEED, speed))
 
+    def move_up(self):
+        """Manual-only altitude nudge (not part of DroneInterface - v1's
+        autonomous controller deliberately doesn't control altitude)."""
+        self.target_altitude = min(MAX_ALTITUDE, self.target_altitude + ALTITUDE_STEP)
+
+    def move_down(self):
+        self.target_altitude = max(MIN_ALTITUDE, self.target_altitude - ALTITUDE_STEP)
+
     def turn_left(self, rate):
         self.target_yaw_rate = max(-MAX_YAW_RATE, min(MAX_YAW_RATE, rate))
 
@@ -142,16 +165,33 @@ class PyBulletDrone(DroneInterface):
         raw = self.body.get_state()
         vx, vy, vz = raw["linear_velocity"]
         speed = math.sqrt(vx ** 2 + vy ** 2)
+
+        # Body-frame actual forward/left velocity, for comparing directly
+        # against target_vx/target_vy (also body-frame) in the debug
+        # overlay - "target velocity" vs "actual velocity" should mean the
+        # same axes, not a world-frame vs body-frame mismatch.
+        _, _, yaw = p.getEulerFromQuaternion(raw["orientation"])
+        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+        vx_body = vx * cos_yaw + vy * sin_yaw
+        vy_body = -vx * sin_yaw + vy * cos_yaw
+
         return {
             "position": raw["position"],
             "altitude": raw["position"][2],
+            "target_altitude": self.target_altitude,
             "orientation": raw["orientation"],
             "horizontal_speed": speed,
             "vertical_speed": vz,
+            "actual_vx": vx_body,
+            "actual_vy": vy_body,
+            "target_vx": self.target_vx,
+            "target_vy": self.target_vy,
             "yaw_rate": raw["angular_velocity"][2],
             "flight_state": self.state,
             "collided": self.collided,
             "emergency": self.emergency,
+            "min_obstacle_distance": self.min_obstacle_distance,
+            "safety_override": self.safety_override,
         }
 
     # --- Main control cycle: call every physics tick ---
@@ -164,7 +204,21 @@ class PyBulletDrone(DroneInterface):
         position = state["position"]
         roll, pitch, yaw = p.getEulerFromQuaternion(state["orientation"])
         vx, vy, vz = state["linear_velocity"]
-        roll_rate, pitch_rate, yaw_rate = state["angular_velocity"]
+
+        # pybullet's angular velocity is in WORLD frame. Using it directly
+        # as roll/pitch damping only happens to work near yaw=0 - once the
+        # drone is actively yawing, world-frame wx/wy stop corresponding to
+        # "how fast is it tilting nose-up/bank-left" and instead mix with
+        # the yaw rotation, feeding wrong damping into the pitch/roll PIDs.
+        # That mismatch was the actual cause of a real bug: sustained
+        # emergency turning (high yaw rate + active pitch/roll) diverged
+        # into an exponentially growing oscillation. Rotate into body
+        # frame first, same as a real flight controller's gyro reads.
+        rot = p.getMatrixFromQuaternion(state["orientation"])
+        wx, wy, wz = state["angular_velocity"]
+        roll_rate = rot[0] * wx + rot[3] * wy + rot[6] * wz
+        pitch_rate = rot[1] * wx + rot[4] * wy + rot[7] * wz
+        yaw_rate = rot[2] * wx + rot[5] * wy + rot[8] * wz
 
         if self.state in ("idle", "landed"):
             # Motors off - just let it sit there.
@@ -177,9 +231,38 @@ class PyBulletDrone(DroneInterface):
         thrust = MASS * GRAVITY + self._alt_pid.update(alt_error, PHYSICS_DT, derivative=-vz)
         thrust = max(0.0, thrust)
 
+        # --- Proximity safety net: overrides whatever was commanded (manual
+        # or autonomous) using real physics distance, independent of - and a
+        # backstop for - the reflex controller's own (imperfect) avoidance.
+        self.min_obstacle_distance = self._closest_obstacle_distance()
+        self.safety_override = False
+        target_vx, target_vy = self.target_vx, self.target_vy
+
+        if self.min_obstacle_distance is not None:
+            if self.min_obstacle_distance < CRITICAL_DISTANCE:
+                self.safety_override = True
+                target_vx, target_vy = -RETREAT_SPEED, 0.0
+            elif self.min_obstacle_distance < SAFETY_DISTANCE:
+                self.safety_override = True
+                target_vx = min(target_vx, 0.0)  # can brake/back away/strafe, just not push forward
+
         # --- Velocity -> desired tilt (outer loop) ---
-        vx_error = self.target_vx - vx
-        vy_error = self.target_vy - vy
+        # target_vx/target_vy are body-relative ("forward"/"left"), but the
+        # measured vx/vy from the physics engine are world-frame. Rotate the
+        # MEASURED velocity into body frame (by -yaw) rather than rotating
+        # the target into world frame: pitch/roll are inherently body-frame
+        # concepts (tilting the body's own axes), and at nonzero yaw a tilt
+        # actually accelerates the drone along a mix of both world axes -
+        # trying to hit a world-frame velocity target directly would need a
+        # coupled pitch+roll formula. Comparing in body frame instead lets
+        # the same simple, already-verified "pitch <- forward error, roll
+        # <- left error" mapping work correctly at any heading.
+        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+        vx_body = vx * cos_yaw + vy * sin_yaw
+        vy_body = -vx * sin_yaw + vy * cos_yaw
+
+        vx_error = target_vx - vx_body
+        vy_error = target_vy - vy_body
         desired_pitch = max(-MAX_TILT, min(MAX_TILT, VEL_TO_TILT_KP * vx_error))
         desired_roll = max(-MAX_TILT, min(MAX_TILT, -VEL_TO_TILT_KP * vy_error))
 
@@ -206,6 +289,16 @@ class PyBulletDrone(DroneInterface):
             self._landing_altitude = max(0.0, self._landing_altitude - 0.4 * PHYSICS_DT)
             return self._landing_altitude
         return max(MIN_ALTITUDE, min(MAX_ALTITUDE, self.target_altitude))
+
+    def _closest_obstacle_distance(self):
+        if not self.obstacle_ids:
+            return None
+        distances = [
+            self.body.closest_distance(oid, max_distance=2.0)
+            for oid in self.obstacle_ids
+        ]
+        distances = [d for d in distances if d is not None]
+        return min(distances) if distances else None
 
     def _run_state_machine(self):
         altitude = self._current_altitude()

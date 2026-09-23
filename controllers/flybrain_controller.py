@@ -15,6 +15,7 @@ class FlyBrainController:
         )
 
     def decide(self, left_flow, center_flow, right_flow, state=None):
-        """Must return {"forward_speed": float, "yaw_rate": float},
-        same as ReflexController.decide()."""
+        """Must return the same command dict shape as ReflexController and
+        ManualController: {"forward_speed", "strafe_speed", "yaw_rate",
+        "altitude_delta", "hover", "land", "reset"}."""
         raise NotImplementedError

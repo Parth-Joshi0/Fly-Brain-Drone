@@ -32,6 +32,15 @@ class QuadcopterBody:
             baseVisualShapeIndex=visual_shape,
             basePosition=start_pos,
         )
+
+        # pybullet bodies have ~zero drag by default, so once moving the
+        # drone would coast on pure momentum until the attitude PID
+        # actively tilts back to brake it - which feels sluggish/floaty
+        # for manual flying. Real drones have real air resistance; giving
+        # it some here makes releasing a key bring it to a stop quickly
+        # instead of drifting, without needing to rely on the PID alone.
+        p.changeDynamics(self.id, -1, linearDamping=0.9, angularDamping=0.9)
+
         # v1 keeps the body as a plain box - no decorative rotor arms. An
         # earlier attempt attached 4 arm markers via createConstraint to
         # separate zero-mass bodies, which destabilized the physics (fixed
@@ -75,7 +84,7 @@ class QuadcopterBody:
         }
 
     def get_contacts(self):
-        return p.getContactPoints(bodyA=self.id)
+        return p.getContactPoints(bodyA=self.id) or []
 
     def closest_distance(self, other_body_id, max_distance=5.0):
         pts = p.getClosestPoints(self.id, other_body_id, distance=max_distance)

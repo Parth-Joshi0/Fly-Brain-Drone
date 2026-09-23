@@ -1,10 +1,22 @@
 """
 Interactive, visual run of the FlyBrain drone sim:
 
-    Camera -> Optical Flow -> Reflex Controller -> Drone Interface -> PyBullet
+    Camera -> Optical Flow -> Controller -> Drone Interface -> PyBullet
 
-Opens a PyBullet GUI window plus two debug windows (camera feed with a
-telemetry overlay, and a color-coded optical-flow visualization).
+Starts in MANUAL mode (keyboard control) - nothing drives the drone until
+you tell it to. Press M to switch to AUTONOMOUS mode (the reflex
+controller). Opens a PyBullet GUI window plus two debug windows (camera
+feed with a telemetry overlay, and a color-coded optical-flow visualization).
+
+Manual controls:
+    Up/Down       forward / backward
+    Left/Right    strafe left / right
+    W/S           altitude up / down
+    Q/E           yaw left / right
+    Space         hover
+    L             land
+    R             reset (re-takes off after resetting)
+    M             switch MANUAL <-> AUTONOMOUS
 
 Run:
     python main.py
@@ -19,25 +31,79 @@ import pybullet_data
 from simulation.environment import build_environment
 from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
 from controllers.reflex_controller import ReflexController
+from controllers.manual_controller import ManualController
 from vision.optical_flow import compute_flow, derotate_flow, region_flow_strengths, FlowVisualizer
 
 DECISION_INTERVAL_STEPS = 8  # 240Hz physics / 8 = 30Hz decision loop, in the
                               # ~20-30 FPS range requested for the camera
 
 
-def draw_debug_overlay(frame, state, decision, left, center, right):
+def draw_debug_overlay(frame, mode, state, cmd, left, center, right):
+    dist = state["min_obstacle_distance"]
+    dist_str = f"{dist:.2f}m" if dist is not None else "n/a"
+    pressed = cmd.get("pressed_direction", "(autonomous)")
     lines = [
-        f"state: {state['flight_state']}  alt: {state['altitude']:.2f}m",
-        f"speed: {state['horizontal_speed']:.2f}m/s  vz: {state['vertical_speed']:.2f}m/s",
+        f"MODE: {mode.upper()}  (M to switch)   state: {state['flight_state']}",
+        f"pressed: {pressed}",
+        f"target vel (fwd,left): ({cmd['forward_speed']:.2f}, {cmd['strafe_speed']:.2f}) m/s"
+        f"  yaw_cmd={cmd['yaw_rate']:.2f}",
+        f"actual vel (fwd,left): ({state['actual_vx']:.2f}, {state['actual_vy']:.2f}) m/s"
+        f"  speed={state['horizontal_speed']:.2f}",
+        f"alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m",
+        f"flow L/C/R: {left:.2f} / {center:.2f} / {right:.2f}",
+        f"obstacle dist: {dist_str}  safety_override: {state['safety_override']}",
         f"collided: {state['collided']}  emergency: {state['emergency']}",
-        f"flow L/C/R: {left:.3f} / {center:.3f} / {right:.3f}",
-        f"cmd: fwd={decision['forward_speed']:.2f} yaw={decision['yaw_rate']:.2f}",
     ]
     out = frame.copy()
     for i, line in enumerate(lines):
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
                     0.42, (0, 255, 0), 1, cv2.LINE_AA)
     return out
+
+
+def apply_command(drone, cmd):
+    """Dispatches one command dict (from either controller - they share the
+    same shape) to the drone interface. Returns True if a reset happened,
+    so the caller can clear stale vision/controller state."""
+
+    if cmd["reset"]:
+        drone.reset()
+        drone.takeoff()
+        return True
+
+    if cmd["land"]:
+        drone.land()
+        return False
+
+    if drone.state != "flying":
+        # Still taking off / landing / recovering from an emergency - the
+        # low-level state machine and safety net own the drone right now,
+        # not the controller.
+        return False
+
+    if cmd["hover"]:
+        drone.hover()
+    else:
+        drone.move_forward(cmd["forward_speed"])
+        if cmd["strafe_speed"] > 0:
+            drone.move_left(cmd["strafe_speed"])
+        elif cmd["strafe_speed"] < 0:
+            drone.move_right(-cmd["strafe_speed"])
+        else:
+            drone.move_left(0)
+        if cmd["yaw_rate"] > 0:
+            drone.turn_left(cmd["yaw_rate"])
+        elif cmd["yaw_rate"] < 0:
+            drone.turn_right(-cmd["yaw_rate"])
+        else:
+            drone.turn_left(0)
+
+    if cmd["altitude_delta"] > 0:
+        drone.move_up()
+    elif cmd["altitude_delta"] < 0:
+        drone.move_down()
+
+    return False
 
 
 def main():
@@ -55,13 +121,17 @@ def main():
         ground_id=env["plane"],
         obstacle_ids=set(env["obstacles"]),
     )
-    controller = ReflexController()
+    manual = ManualController()
+    autonomous = ReflexController()
     flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
 
-    drone.takeoff()
+    mode = "manual"  # starts in manual - nothing drives the drone until
+                      # you press a key or switch to autonomous with M
+    drone.takeoff()  # takes off and hovers; stays put with no keys held
     prev_gray = None
-    last_decision = {"forward_speed": 0.0, "yaw_rate": 0.0}
     left = center = right = 0.0
+    cmd = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
+           "altitude_delta": 0.0, "hover": False, "land": False, "reset": False}
 
     step_count = 0
     while True:
@@ -76,37 +146,39 @@ def main():
                 yaw_rate = drone.get_state()["yaw_rate"]
                 flow = derotate_flow(flow, yaw_rate, DECISION_INTERVAL_STEPS * PHYSICS_DT)
                 left, center, right = region_flow_strengths(flow)
-                last_decision = controller.decide(left, center, right)
-
-                if drone.state == "flying":
-                    drone.move_forward(last_decision["forward_speed"])
-                    if last_decision["yaw_rate"] > 0:
-                        drone.turn_left(last_decision["yaw_rate"])
-                    elif last_decision["yaw_rate"] < 0:
-                        drone.turn_right(-last_decision["yaw_rate"])
-                    else:
-                        drone.turn_left(0)
-
                 cv2.imshow("Optical Flow", flow_viz.render(flow))
-
             prev_gray = gray
 
+            keys = p.getKeyboardEvents()
+            if ord('m') in keys and keys[ord('m')] & p.KEY_WAS_TRIGGERED:
+                mode = "autonomous" if mode == "manual" else "manual"
+                print(f"--- switched to {mode.upper()} mode ---", flush=True)
+
+            if mode == "manual":
+                cmd = manual.decide(keys)
+            else:
+                cmd = autonomous.decide(left, center, right)
+
+            if apply_command(drone, cmd):
+                prev_gray = None
+                autonomous.reset()
+
             state = drone.get_state()
-            cv2.imshow("Drone Camera", draw_debug_overlay(frame, state, last_decision, left, center, right))
+            cv2.imshow("Drone Camera", draw_debug_overlay(frame, mode, state, cmd, left, center, right))
             cv2.waitKey(1)
 
             if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
                 print(
-                    f"[{state['flight_state']:>10}] alt={state['altitude']:.2f}m "
+                    f"[{mode:>10}][{state['flight_state']:>10}] alt={state['altitude']:.2f}m "
                     f"speed={state['horizontal_speed']:.2f}m/s "
                     f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
                     f"collided={state['collided']} emergency={state['emergency']} "
-                    f"flow L/C/R={left:.3f}/{center:.3f}/{right:.3f}",
+                    f"flow L/C/R={left:.2f}/{center:.2f}/{right:.2f}",
                     flush=True,
                 )
 
             if state["position"][0] >= env["goal_x"]:
-                print("Course completed!")
+                print("Course completed!", flush=True)
                 drone.land()
 
         step_count += 1
