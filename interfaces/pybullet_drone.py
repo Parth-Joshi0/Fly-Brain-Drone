@@ -32,12 +32,16 @@ NORMAL_ALTITUDE = 1.5      # m - default cruise altitude; also the takeoff targe
                             # and what relax_altitude() pulls back toward when
                             # nothing has a reason to climb/descend
 MAX_ALTITUDE = 3.0         # m - safety ceiling
-MAX_SPEED = 1.3            # m/s - safety cap on commanded horizontal speed (must
+MAX_SPEED = 2.0            # m/s - safety cap on commanded horizontal speed (must
                             # stay above controllers/safety_layer.py's FAST_SPEED,
                             # or the "go fast in open space" upgrade gets clamped
                             # away uselessly)
 MAX_YAW_RATE = 1.5         # rad/s
-MAX_TILT = 0.30            # rad (~17 deg) - cap on how hard it'll lean over
+MAX_TILT = 0.45            # rad (~26 deg) - cap on how hard it'll lean over. This
+                            # is what actually limits top speed (more tilt = more
+                            # of the thrust vector goes horizontal) - was 0.30,
+                            # which physically couldn't reach much past ~1.0 m/s
+                            # regardless of how high FAST_SPEED was set
 
 # Proximity safety net (item 7): overrides whatever the controller (manual
 # or autonomous) commanded if something is actually this close, using real

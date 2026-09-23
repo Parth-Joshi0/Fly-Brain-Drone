@@ -37,9 +37,13 @@ class QuadcopterBody:
         # drone would coast on pure momentum until the attitude PID
         # actively tilts back to brake it - which feels sluggish/floaty
         # for manual flying. Real drones have real air resistance; giving
-        # it some here makes releasing a key bring it to a stop quickly
-        # instead of drifting, without needing to rely on the PID alone.
-        p.changeDynamics(self.id, -1, linearDamping=0.9, angularDamping=0.9)
+        # it some here makes releasing a key bring it to a stop reasonably
+        # quickly instead of drifting, without needing to rely on the PID
+        # alone. Was 0.9 (very snappy stops) but that also capped top
+        # speed to ~1.0 m/s regardless of thrust/tilt - too strong once
+        # FAST_SPEED needed to go higher. 0.3 is a middle ground: still
+        # noticeably brakes on release, but lets real cruise speed through.
+        p.changeDynamics(self.id, -1, linearDamping=0.3, angularDamping=0.3)
 
         # v1 keeps the body as a plain box - no decorative rotor arms. An
         # earlier attempt attached 4 arm markers via createConstraint to

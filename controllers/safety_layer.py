@@ -29,10 +29,10 @@ import math
 from collections import deque
 
 # --- Speed staging (item 2) - tune freely ------------------------------
-FAST_SPEED = 1.0        # m/s - wide open space, nothing worth slowing for
-NORMAL_SPEED = 0.6      # m/s - default cruise
-WARNING_SPEED = 0.3     # m/s - something's getting closer
-AVOIDANCE_SPEED = 0.15  # m/s - actively avoiding (used as the retreat speed too)
+FAST_SPEED = 1.6         # m/s - wide open space, nothing worth slowing for
+NORMAL_SPEED = 1.0       # m/s - default cruise
+WARNING_SPEED = 0.45     # m/s - something's getting closer
+AVOIDANCE_SPEED = 0.2    # m/s - actively avoiding (used as the retreat speed too)
 
 # --- Flow thresholds (tiers) - re-measure/retune if you change the
 # camera FOV/resolution or the course layout. Same calibration basis as
