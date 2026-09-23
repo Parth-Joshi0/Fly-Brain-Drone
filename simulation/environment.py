@@ -14,6 +14,10 @@ FLOOR_TEXTURE = os.path.join(_ASSET_DIR, "floor_checker.png")
 OBSTACLE_TEXTURE = os.path.join(_ASSET_DIR, "obstacle_stripes.png")
 
 GOAL_X = 16.0  # how far down the course counts as "completed"
+COURSE_MARGIN = 3.0  # m added around the obstacle course for the soft flight
+                      # boundary - parameter #4 the caller asked about: this is
+                      # what controls how far past the obstacles the drone is
+                      # allowed to wander before BOUNDARY_RETURN kicks in
 
 
 def _add_box(half_extents, position, texture_id):
@@ -67,4 +71,19 @@ def build_environment():
     p.createMultiBody(baseMass=0, baseVisualShapeIndex=goal_marker,
                        basePosition=[GOAL_X, 0, 1.0])
 
-    return {"plane": plane, "obstacles": obstacles, "goal_x": GOAL_X}
+    # Soft flight-area boundary for controllers/reflex_controller.py's
+    # BOUNDARY_RETURN state. X range covers the whole obstacle course plus
+    # COURSE_MARGIN on each end; Y is pulled in slightly from the y=+-3
+    # perimeter walls (which are physical obstacles the flow system also
+    # avoids on its own) so the soft boundary triggers a little before the
+    # drone would ever reach the wall.
+    bounds = {
+        "min_x": -COURSE_MARGIN,
+        "max_x": GOAL_X + COURSE_MARGIN,
+        "min_y": -2.7,
+        "max_y": 2.7,
+        "center_x": GOAL_X / 2,
+        "center_y": 0.0,
+    }
+
+    return {"plane": plane, "obstacles": obstacles, "goal_x": GOAL_X, "bounds": bounds}

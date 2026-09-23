@@ -37,7 +37,7 @@ def run_trial():
         ground_id=env["plane"],
         obstacle_ids=set(env["obstacles"]),
     )
-    controller = ReflexController()
+    controller = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
     metrics = TrialMetrics(goal_x=env["goal_x"])
     metrics.start(drone.get_state()["position"])
@@ -75,7 +75,8 @@ def run_trial():
                 exploring = flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
                 if exploring:
                     raw_cmd = controller.decide(flow, state_now)
-                    cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"])
+                    already_avoiding = controller.state in ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN")
+                    cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
                 else:
                     cmd = dict(EMPTY_CMD)
                     safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}

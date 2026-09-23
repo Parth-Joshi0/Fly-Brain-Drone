@@ -19,8 +19,7 @@ def compute_flow(prev_gray, gray):
 
 
 # Empirically calibrated for the default DroneCamera (320px wide, 75 deg
-# vertical FOV) by measuring actual Farneback output while yawing in an
-# empty scene - see the derivation note in derotate_flow().
+# vertical FOV) by measuring actual Farneback output while yawing.
 _PIXELS_PER_RADIAN = 75.0
 
 
@@ -35,6 +34,20 @@ def derotate_flow(flow, yaw_rate, dt):
     flies cancel this out using their halteres (a gyroscope) to subtract
     expected self-motion from what their eyes report; this does the same
     thing with the simulator's own known yaw rate.
+
+    Important limitation, found by measuring rather than assumed: this
+    only cancels the *mean* horizontal shift. Per-pixel flow during a
+    turn has real, substantial variance around that mean (a wide-FOV
+    camera's rotational flow genuinely isn't uniform across the frame -
+    it's a perspective-projection effect, not sensor noise, and a
+    position-dependent correction model didn't reliably improve on the
+    simple constant in testing here). That residual variance means any
+    sustained yaw rate produces some baseline elevated flow reading even
+    with nothing nearby - see AVOID_TURN_RATE and BOUNDARY_TURN_RATE in
+    reflex_controller.py, which are kept moderate partly for this reason,
+    and controllers/safety_layer.py's already_avoiding flag, which stops
+    that residual from triggering a second, conflicting turn decision on
+    top of a turn already in progress.
     """
     corrected = flow.copy()
     corrected[..., 0] -= _PIXELS_PER_RADIAN * yaw_rate * dt
