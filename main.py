@@ -1,16 +1,19 @@
 """
 Interactive, visual run of the FlyBrain drone sim:
 
-    Camera -> Optical Flow -> Controller -> Drone Interface -> PyBullet
+    Keyboard/Autonomous intent -> SafetyLayer (optic flow) -> Drone Interface -> PyBullet
 
 Starts in MANUAL mode (keyboard control) - nothing drives the drone until
-you tell it to. Press M to switch to AUTONOMOUS mode (the reflex
-controller). Opens a PyBullet GUI window plus two debug windows (camera
-feed with a telemetry overlay, and a color-coded optical-flow visualization).
+you tell it to. Press M to switch to AUTONOMOUS mode. In BOTH modes, every
+command passes through the optic-flow SafetyLayer before reaching the
+drone - it can override your keyboard input if something is too close,
+even while you're holding a movement key. Opens a PyBullet GUI window
+plus two debug windows (camera feed with a telemetry overlay, and a
+color-coded optical-flow visualization).
 
 Manual controls:
-    Up/Down       forward / backward
-    Left/Right    strafe left / right
+    Up/Down       move forward / backward (relative to the drone's CURRENT heading)
+    Left/Right    strafe left / right (relative to the drone's CURRENT heading)
     W/S           altitude up / down
     Q/E           yaw left / right
     Space         hover
@@ -32,39 +35,39 @@ from simulation.environment import build_environment
 from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
 from controllers.reflex_controller import ReflexController
 from controllers.manual_controller import ManualController
+from controllers.safety_layer import SafetyLayer
 from vision.optical_flow import compute_flow, derotate_flow, region_flow_strengths, FlowVisualizer
 
 DECISION_INTERVAL_STEPS = 8  # 240Hz physics / 8 = 30Hz decision loop, in the
                               # ~20-30 FPS range requested for the camera
 
 
-def draw_debug_overlay(frame, mode, state, cmd, left, center, right):
+def draw_debug_overlay(frame, mode, state, raw_cmd, final_cmd, safety_info, left, center, right):
     dist = state["min_obstacle_distance"]
     dist_str = f"{dist:.2f}m" if dist is not None else "n/a"
-    pressed = cmd.get("pressed_direction", "(autonomous)")
     lines = [
         f"MODE: {mode.upper()}  (M to switch)   state: {state['flight_state']}",
-        f"pressed: {pressed}",
-        f"target vel (fwd,left): ({cmd['forward_speed']:.2f}, {cmd['strafe_speed']:.2f}) m/s"
-        f"  yaw_cmd={cmd['yaw_rate']:.2f}",
-        f"actual vel (fwd,left): ({state['actual_vx']:.2f}, {state['actual_vy']:.2f}) m/s"
-        f"  speed={state['horizontal_speed']:.2f}",
-        f"alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m",
-        f"flow L/C/R: {left:.2f} / {center:.2f} / {right:.2f}",
-        f"obstacle dist: {dist_str}  safety_override: {state['safety_override']}",
-        f"collided: {state['collided']}  emergency: {state['emergency']}",
+        f"keyboard cmd: {raw_cmd.get('pressed_direction', '(autonomous)')}"
+        f"  (fwd={raw_cmd['forward_speed']:.2f} strafe={raw_cmd['strafe_speed']:.2f} yaw={raw_cmd['yaw_rate']:.2f})",
+        f"actual cmd sent: fwd={final_cmd['forward_speed']:.2f} strafe={final_cmd['strafe_speed']:.2f} "
+        f"yaw={final_cmd['yaw_rate']:.2f}",
+        f"yaw: {state['yaw_degrees']:.0f}deg   alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m",
+        f"flow  LEFT={left:.2f}  CENTER={center:.2f}  RIGHT={right:.2f}",
+        f"safety: {safety_info['level']}   avoidance active: {'YES' if safety_info['active'] else 'NO'}",
+        f"physics dist: {dist_str}  collided: {state['collided']}",
     ]
     out = frame.copy()
     for i, line in enumerate(lines):
+        color = (0, 0, 255) if safety_info["active"] else (0, 255, 0)
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.42, (0, 255, 0), 1, cv2.LINE_AA)
+                    0.42, color, 1, cv2.LINE_AA)
     return out
 
 
 def apply_command(drone, cmd):
-    """Dispatches one command dict (from either controller - they share the
-    same shape) to the drone interface. Returns True if a reset happened,
-    so the caller can clear stale vision/controller state."""
+    """Dispatches one FINAL command dict (already passed through the
+    safety layer) to the drone interface. Returns True if a reset
+    happened, so the caller can clear stale vision/controller state."""
 
     if cmd["reset"]:
         drone.reset()
@@ -123,6 +126,7 @@ def main():
     )
     manual = ManualController()
     autonomous = ReflexController()
+    safety = SafetyLayer()
     flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
 
     mode = "manual"  # starts in manual - nothing drives the drone until
@@ -130,8 +134,11 @@ def main():
     drone.takeoff()  # takes off and hovers; stays put with no keys held
     prev_gray = None
     left = center = right = 0.0
-    cmd = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
-           "altitude_delta": 0.0, "hover": False, "land": False, "reset": False}
+    empty_cmd = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
+                 "altitude_delta": 0.0, "hover": False, "land": False, "reset": False,
+                 "pressed_direction": "-"}
+    raw_cmd = final_cmd = dict(empty_cmd)
+    safety_info = {"level": "CLEAR", "active": False}
 
     step_count = 0
     while True:
@@ -154,25 +161,38 @@ def main():
                 mode = "autonomous" if mode == "manual" else "manual"
                 print(f"--- switched to {mode.upper()} mode ---", flush=True)
 
+            # 1. Get raw intent (keyboard command or autonomous request)
             if mode == "manual":
-                cmd = manual.decide(keys)
+                raw_cmd = manual.decide(keys)
             else:
-                cmd = autonomous.decide(left, center, right)
+                raw_cmd = autonomous.decide(left, center, right)
 
-            if apply_command(drone, cmd):
+            # 2. Obstacle safety/reflex layer - can override the raw
+            # intent regardless of its source. This runs every decision
+            # cycle in BOTH modes, so holding a movement key toward a wall
+            # cannot fly the drone into it.
+            final_cmd, safety_info = safety.apply(raw_cmd, left, center, right)
+
+            # 3. Send the final (possibly overridden) command to the drone
+            if apply_command(drone, final_cmd):
                 prev_gray = None
                 autonomous.reset()
+                safety.reset()
 
             state = drone.get_state()
-            cv2.imshow("Drone Camera", draw_debug_overlay(frame, mode, state, cmd, left, center, right))
+            cv2.imshow(
+                "Drone Camera",
+                draw_debug_overlay(frame, mode, state, raw_cmd, final_cmd, safety_info, left, center, right),
+            )
             cv2.waitKey(1)
 
             if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
                 print(
-                    f"[{mode:>10}][{state['flight_state']:>10}] alt={state['altitude']:.2f}m "
+                    f"[{mode:>10}][{state['flight_state']:>10}][{safety_info['level']:>7}] "
+                    f"alt={state['altitude']:.2f}m yaw={state['yaw_degrees']:.0f}deg "
                     f"speed={state['horizontal_speed']:.2f}m/s "
                     f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
-                    f"collided={state['collided']} emergency={state['emergency']} "
+                    f"collided={state['collided']} avoidance={safety_info['active']} "
                     f"flow L/C/R={left:.2f}/{center:.2f}/{right:.2f}",
                     flush=True,
                 )

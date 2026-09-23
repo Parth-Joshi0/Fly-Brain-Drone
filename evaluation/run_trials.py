@@ -17,6 +17,7 @@ import pybullet_data
 from simulation.environment import build_environment
 from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
 from controllers.reflex_controller import ReflexController
+from controllers.safety_layer import SafetyLayer
 from vision.optical_flow import compute_flow, derotate_flow, region_flow_strengths
 from evaluation.metrics import TrialMetrics, print_summary
 
@@ -36,6 +37,7 @@ def run_trial():
         obstacle_ids=set(env["obstacles"]),
     )
     controller = ReflexController()
+    safety = SafetyLayer()
     metrics = TrialMetrics(goal_x=env["goal_x"])
     metrics.start(drone.get_state()["position"])
 
@@ -57,7 +59,8 @@ def run_trial():
                 yaw_rate = drone.get_state()["yaw_rate"]
                 flow = derotate_flow(flow, yaw_rate, DECISION_INTERVAL_STEPS * PHYSICS_DT)
                 left, center, right = region_flow_strengths(flow)
-                cmd = controller.decide(left, center, right)
+                raw_cmd = controller.decide(left, center, right)
+                cmd, safety_info = safety.apply(raw_cmd, left, center, right)
 
                 if drone.state == "flying":
                     drone.move_forward(cmd["forward_speed"])
@@ -67,7 +70,7 @@ def run_trial():
                         drone.turn_right(-cmd["yaw_rate"])
                     else:
                         drone.turn_left(0)
-                    is_avoidance = cmd["yaw_rate"] != 0
+                    is_avoidance = safety_info["active"]
             prev_gray = gray
 
             state = drone.get_state()

@@ -50,7 +50,12 @@ ALTITUDE_STEP = 0.015      # m added to target altitude per move_up/move_down
 ALT_KP, ALT_KI, ALT_KD = 10.0, 1.0, 9.0         # altitude error (m) -> thrust (N)
 VEL_TO_TILT_KP = 0.18                           # velocity error (m/s) -> target tilt (rad)
 TILT_KP, TILT_KD = 0.09, 0.025                  # tilt error (rad) / rate -> torque (Nm)
-YAW_KP = 0.03                                   # yaw rate error -> torque (Nm)
+YAW_KP = 0.22                                   # yaw rate error -> torque (Nm) - was
+                                                 # 0.03, which took a full second to
+                                                 # spin up; too slow for the heading to
+                                                 # catch up during a real turn-then-move
+                                                 # key combo, making "forward" feel like
+                                                 # it was using the wrong direction
 
 EMERGENCY_HOVER_STEPS = 180  # how long to just hover after a collision before auto-landing
 # -----------------------------------------------------------------------
@@ -180,6 +185,7 @@ class PyBulletDrone(DroneInterface):
             "altitude": raw["position"][2],
             "target_altitude": self.target_altitude,
             "orientation": raw["orientation"],
+            "yaw_degrees": math.degrees(yaw),
             "horizontal_speed": speed,
             "vertical_speed": vz,
             "actual_vx": vx_body,
