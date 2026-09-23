@@ -27,6 +27,7 @@ Run:
     python main.py
 """
 
+import math
 import time
 
 import cv2
@@ -44,6 +45,21 @@ DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
                                # ~20-30 FPS range requested for the camera
 HOVER_BEFORE_EXPLORE_CYCLES = 45  # ~1.5s at 30Hz: "take off, hover briefly,
                                    # THEN begin exploring" (item 1)
+
+# --- "Easy to watch" debug camera - follows the drone at a fixed angle/
+# distance rather than a tight close-up, so nearby obstacles and the
+# direction of travel stay visible. ---
+DEBUG_CAMERA_DISTANCE = 7.0
+DEBUG_CAMERA_YAW = 50
+DEBUG_CAMERA_PITCH = -35
+HEADING_LINE_LENGTH = 1.5  # m - length of the drawn forward-direction line
+
+_ACTION_FOR_STATE = {
+    "CRUISE": "FORWARD",
+    "AVOID_LEFT": "TURN LEFT",
+    "AVOID_RIGHT": "TURN RIGHT",
+    "BOUNDARY_RETURN": "RETURN TO COURSE",
+}
 
 EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
              "altitude_delta": 0.0, "hover": False, "land": False, "reset": False,
@@ -63,19 +79,35 @@ def emergency_keys(keys):
     return {"hover": down(ord(' ')), "land": pressed(ord('l')), "reset": pressed(ord('r'))}
 
 
-def draw_debug_overlay(frame, mode, state, final_cmd, safety_info, flow):
+def action_label(mode, nav_state, safety_info):
+    """The single, human-readable "what is it doing right now" string -
+    an emergency override (SafetyLayer) always takes priority to display
+    over the navigation controller's own state, since it means the
+    controller's plan just got overruled."""
+    if safety_info["stuck"]:
+        return f"STUCK -> {safety_info['direction']}"
+    if safety_info["level"] == "DANGER":
+        return f"EMERGENCY {safety_info['direction']}"
+    if mode != "autonomous":
+        return "MANUAL"
+    return _ACTION_FOR_STATE.get(nav_state, nav_state)
+
+
+def draw_debug_overlay(frame, mode, nav_state, state, final_cmd, safety_info, flow):
     dist = state["min_obstacle_distance"]
     dist_str = f"{dist:.2f}m" if dist is not None else "n/a"
+    action = action_label(mode, nav_state, safety_info)
     lines = [
-        f"MODE: {mode.upper()}  (M to switch)   state: {state['flight_state']}",
-        f"speed: fwd_cmd={final_cmd['forward_speed']:.2f}  decision: {safety_info['direction']}",
+        f"MODE: {mode.upper()}  (M to switch)   STATE: {nav_state}",
+        f"ACTION: {action}",
+        f"LEFT FLOW: {flow['left']:.2f}   CENTER FLOW: {flow['center']:.2f}   RIGHT FLOW: {flow['right']:.2f}",
+        f"cmd: fwd={final_cmd['forward_speed']:.2f}m/s  yaw={final_cmd['yaw_rate']:.2f}rad/s",
         f"alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m   yaw: {state['yaw_degrees']:.0f}deg",
-        f"forward_vel: {state['actual_vx']:.2f}m/s   vertical_vel: {state['vertical_speed']:.2f}m/s",
-        f"flow  L={flow['left']:.2f} R={flow['right']:.2f} T={flow['top']:.2f} "
-        f"B={flow['bottom']:.2f} C={flow['center']:.2f}",
-        f"danger: {safety_info['level']}   avoidance active: {'YES' if safety_info['active'] else 'NO'}"
-        f"{'  [STUCK]' if safety_info['stuck'] else ''}",
-        f"physics dist: {dist_str}  collided: {state['collided']}",
+        f"pos: ({state['position'][0]:.1f}, {state['position'][1]:.1f})   "
+        f"forward_vel: {state['actual_vx']:.2f}m/s",
+        f"top/bottom flow: T={flow['top']:.2f} B={flow['bottom']:.2f}   physics dist: {dist_str}",
+        f"safety override: {'YES' if safety_info['active'] else 'NO'} ({safety_info['level']})"
+        f"{'  [STUCK]' if safety_info['stuck'] else ''}   collided: {state['collided']}",
     ]
     out = frame.copy()
     for i, line in enumerate(lines):
@@ -83,6 +115,36 @@ def draw_debug_overlay(frame, mode, state, final_cmd, safety_info, flow):
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
                     0.42, color, 1, cv2.LINE_AA)
     return out
+
+
+def update_debug_camera(position):
+    """Keeps the PyBullet 3D viewport centered on the drone at a fixed
+    distance/angle - "easy to watch" without the user needing to manually
+    pan/zoom, and without zooming in so tight that nearby obstacles fall
+    out of view."""
+    p.resetDebugVisualizerCamera(
+        cameraDistance=DEBUG_CAMERA_DISTANCE,
+        cameraYaw=DEBUG_CAMERA_YAW,
+        cameraPitch=DEBUG_CAMERA_PITCH,
+        cameraTargetPosition=position,
+    )
+
+
+def draw_heading_line(position, yaw_degrees, line_id):
+    """A short line in the PyBullet 3D view showing the drone's current
+    forward direction. Reuses the same debug-item id every call
+    (replaceItemUniqueId) so it updates in place instead of accumulating
+    thousands of lines."""
+    yaw = math.radians(yaw_degrees)
+    end = [
+        position[0] + HEADING_LINE_LENGTH * math.cos(yaw),
+        position[1] + HEADING_LINE_LENGTH * math.sin(yaw),
+        position[2],
+    ]
+    if line_id is None:
+        return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3)
+    return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3,
+                               replaceItemUniqueId=line_id)
 
 
 def apply_command(drone, cmd):
@@ -148,7 +210,7 @@ def main():
         obstacle_ids=set(env["obstacles"]),
     )
     manual = ManualController()
-    autonomous = ReflexController()
+    autonomous = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
     flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
 
@@ -160,6 +222,7 @@ def main():
     safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
     flying_cycle_count = 0  # counts decision cycles spent in "flying" state,
                              # for the "hover briefly before exploring" grace period
+    heading_line_id = None
 
     step_count = 0
     while True:
@@ -210,7 +273,11 @@ def main():
                 # 2. Obstacle safety/reflex layer - final override
                 # authority (this is what makes "hold/request forward
                 # into a wall" impossible even while flying itself).
-                final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"])
+                # already_avoiding tells it the FSM is already turning
+                # away from something, so it won't add a second,
+                # possibly-disagreeing turn decision on top.
+                already_avoiding = autonomous.state in ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN")
+                final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
             else:
                 final_cmd = raw_cmd
                 safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
@@ -223,18 +290,22 @@ def main():
                 safety.reset()
 
             state = drone.get_state()
-            cv2.imshow("Drone Camera", draw_debug_overlay(frame, mode, state, final_cmd, safety_info, flow))
+            update_debug_camera(state["position"])
+            heading_line_id = draw_heading_line(state["position"], state["yaw_degrees"], heading_line_id)
+
+            cv2.imshow("Drone Camera", draw_debug_overlay(
+                frame, mode, autonomous.state, state, final_cmd, safety_info, flow))
             cv2.waitKey(1)
 
             if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
+                action = action_label(mode, autonomous.state, safety_info)
                 print(
-                    f"[{mode:>10}][{state['flight_state']:>10}][{safety_info['level']:>7}] "
+                    f"[{mode:>10}][STATE={autonomous.state:>15}][ACTION={action:>18}] "
                     f"alt={state['altitude']:.2f}m yaw={state['yaw_degrees']:.0f}deg "
-                    f"speed={state['horizontal_speed']:.2f}m/s decision={safety_info['direction']} "
+                    f"speed={state['horizontal_speed']:.2f}m/s "
                     f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
                     f"collided={state['collided']} avoidance={safety_info['active']} stuck={safety_info['stuck']} "
-                    f"flow L/R/T/B/C={flow['left']:.2f}/{flow['right']:.2f}/{flow['top']:.2f}/"
-                    f"{flow['bottom']:.2f}/{flow['center']:.2f}",
+                    f"LEFT={flow['left']:.2f} CENTER={flow['center']:.2f} RIGHT={flow['right']:.2f}",
                     flush=True,
                 )
 
