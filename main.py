@@ -41,6 +41,15 @@ from controllers.manual_controller import ManualController
 from controllers.safety_layer import SafetyLayer
 from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer
 
+# The hand-written CRUISE/AVOID_LEFT/AVOID_RIGHT state machine (default),
+# or the real Fly-Brain connectome circuit (controllers/
+# flybrain_controller.py -> fly_brain_controller.py's LC4/LPLC2 ->
+# DNp01/03/06 looming subnetwork) - same decide(flow, state) contract,
+# swap one line to try it. Needs a Python env with brian2/pandas/pyarrow
+# installed (see fly_brain_controller.py's docstring); it's spawned as a
+# subprocess, so this venv itself doesn't need those.
+USE_FLYBRAIN = True
+
 DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
                                # ~20-30 FPS range requested for the camera
 HOVER_BEFORE_EXPLORE_CYCLES = 45  # ~1.5s at 30Hz: "take off, hover briefly,
@@ -59,6 +68,7 @@ _ACTION_FOR_STATE = {
     "AVOID_LEFT": "TURN LEFT",
     "AVOID_RIGHT": "TURN RIGHT",
     "BOUNDARY_RETURN": "RETURN TO COURSE",
+    "ESCAPE": "ESCAPE (Giant Fiber)",  # FlyBrainController only
 }
 
 EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
@@ -210,7 +220,11 @@ def main():
         obstacle_ids=set(env["obstacles"]),
     )
     manual = ManualController()
-    autonomous = ReflexController(bounds=env["bounds"])
+    if USE_FLYBRAIN:
+        from controllers.flybrain_controller import FlyBrainController
+        autonomous = FlyBrainController(bounds=env["bounds"])
+    else:
+        autonomous = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
     flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
 
