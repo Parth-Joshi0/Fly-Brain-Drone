@@ -17,8 +17,13 @@ class FlyBrainController:
             "FlyBrainController isn't built yet - use ReflexController for now."
         )
 
-    def decide(self, left_flow, center_flow, right_flow, state=None):
-        """Must return the same command dict shape as ReflexController and
-        ManualController: {"forward_speed", "strafe_speed", "yaw_rate",
-        "altitude_delta", "hover", "land", "reset"}."""
+    def decide(self, flow, state=None):
+        """flow: the dict from vision.optical_flow.grid_flow_strengths
+        (9 grid cells + left/right/top/bottom/center aggregates). state:
+        drone.get_state(). Must return the same command dict shape as
+        ReflexController and ManualController: {"forward_speed",
+        "strafe_speed", "yaw_rate", "altitude_delta", "hover", "land",
+        "reset"}. SafetyLayer.apply() still runs on the result and has
+        final override authority - this only needs to propose where to
+        go, not guarantee it's safe."""
         raise NotImplementedError

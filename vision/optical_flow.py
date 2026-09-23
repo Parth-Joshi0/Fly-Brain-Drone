@@ -1,7 +1,8 @@
 """
 Dense (Farneback) optical flow between consecutive camera frames, split
-into LEFT / CENTER / RIGHT thirds. These three numbers are the "eyes" of
-the reflex controller - and later, the FlyBrain network.
+into a 3x3 grid (TOP/CENTER/BOTTOM x LEFT/CENTER/RIGHT). These are the
+"eyes" of the autonomous navigation controller and safety layer - and
+later, the FlyBrain network.
 """
 
 import cv2
@@ -40,28 +41,54 @@ def derotate_flow(flow, yaw_rate, dt):
     return corrected
 
 
-def region_flow_strengths(flow, ground_fraction=0.55):
-    """Average flow magnitude in the LEFT / CENTER / RIGHT thirds of the
-    frame, restricted to the upper `ground_fraction` of the image.
+def grid_flow_strengths(flow, ground_fraction=0.8):
+    """Average flow magnitude over a 3x3 grid (top/center/bottom rows x
+    left/center/right columns), restricted to the upper `ground_fraction`
+    of the frame.
 
-    Why crop: with a level-ish camera, the ground fills the bottom of the
-    frame and is always the closest textured surface in view - it produces
-    huge flow purely from proximity ("ventral flow"), which drowns out the
-    actual obstacle signal if you don't exclude it.
+    Why crop at all (rather than a full 3x3 of the whole image): with a
+    level-ish camera, the ground fills the very bottom of the frame and is
+    always the closest textured surface in view - it produces huge flow
+    purely from proximity ("ventral flow") regardless of whether there's
+    a real obstacle below. Cropping only the bottom-most sliver (not
+    almost half the frame, like the old 2D version did) keeps a
+    meaningful "bottom" row for genuine low-obstacle detection while still
+    excluding the worst of the ground-proximity noise.
+
+    Returns a dict with the 9 raw grid cells (e.g. "top_left") plus 5
+    aggregated directions used for navigation decisions:
+        left   = mean of the left column   (top/center/bottom-left)
+        right  = mean of the right column
+        top    = mean of the top row
+        bottom = mean of the bottom row
+        center = the single center cell
+    Aggregating a whole column/row (not just the center-row/center-column
+    cell) makes the L/R/T/B signal more robust to an obstacle that's
+    off-center diagonally, not just dead level with the camera.
     """
     h, w = flow.shape[:2]
     band = flow[: int(h * ground_fraction), :]
+    bh, bw = band.shape[:2]
 
-    third = band.shape[1] // 3
-    left = band[:, :third]
-    center = band[:, third: 2 * third]
-    right = band[:, 2 * third:]
+    row_bounds = [0, bh // 3, 2 * bh // 3, bh]
+    col_bounds = [0, bw // 3, 2 * bw // 3, bw]
+    row_names = ["top", "center", "bottom"]
+    col_names = ["left", "center", "right"]
 
-    left_flow = float(np.mean(np.linalg.norm(left, axis=2)))
-    center_flow = float(np.mean(np.linalg.norm(center, axis=2)))
-    right_flow = float(np.mean(np.linalg.norm(right, axis=2)))
+    grid = {}
+    for ri, rname in enumerate(row_names):
+        for ci, cname in enumerate(col_names):
+            region = band[row_bounds[ri]:row_bounds[ri + 1], col_bounds[ci]:col_bounds[ci + 1]]
+            grid[f"{rname}_{cname}"] = float(np.mean(np.linalg.norm(region, axis=2)))
 
-    return left_flow, center_flow, right_flow
+    return {
+        **grid,
+        "left": (grid["top_left"] + grid["center_left"] + grid["bottom_left"]) / 3,
+        "right": (grid["top_right"] + grid["center_right"] + grid["bottom_right"]) / 3,
+        "top": (grid["top_left"] + grid["top_center"] + grid["top_right"]) / 3,
+        "bottom": (grid["bottom_left"] + grid["bottom_center"] + grid["bottom_right"]) / 3,
+        "center": grid["center_center"],
+    }
 
 
 class FlowVisualizer:

@@ -18,8 +18,9 @@ from simulation.environment import build_environment
 from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
 from controllers.reflex_controller import ReflexController
 from controllers.safety_layer import SafetyLayer
-from vision.optical_flow import compute_flow, derotate_flow, region_flow_strengths
+from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths
 from evaluation.metrics import TrialMetrics, print_summary
+from main import apply_command, HOVER_BEFORE_EXPLORE_CYCLES, EMPTY_CMD
 
 DECISION_INTERVAL_STEPS = 8  # 240Hz physics / 8 = 30Hz decision loop
 MAX_TRIAL_SECONDS = 25
@@ -43,6 +44,8 @@ def run_trial():
 
     drone.takeoff()
     prev_gray = None
+    flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0}
+    flying_cycle_count = 0
 
     physics_steps = int(MAX_TRIAL_SECONDS / PHYSICS_DT)
 
@@ -54,23 +57,30 @@ def run_trial():
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             is_avoidance = False
 
-            if prev_gray is not None:
-                flow = compute_flow(prev_gray, gray)
-                yaw_rate = drone.get_state()["yaw_rate"]
-                flow = derotate_flow(flow, yaw_rate, DECISION_INTERVAL_STEPS * PHYSICS_DT)
-                left, center, right = region_flow_strengths(flow)
-                raw_cmd = controller.decide(left, center, right)
-                cmd, safety_info = safety.apply(raw_cmd, left, center, right)
+            state_now = drone.get_state()
+            if state_now["flight_state"] == "flying":
+                flying_cycle_count += 1
+            else:
+                flying_cycle_count = 0
 
-                if drone.state == "flying":
-                    drone.move_forward(cmd["forward_speed"])
-                    if cmd["yaw_rate"] > 0:
-                        drone.turn_left(cmd["yaw_rate"])
-                    elif cmd["yaw_rate"] < 0:
-                        drone.turn_right(-cmd["yaw_rate"])
-                    else:
-                        drone.turn_left(0)
-                    is_avoidance = safety_info["active"]
+            if prev_gray is not None:
+                raw_flow = compute_flow(prev_gray, gray)
+                yaw_rate = state_now["yaw_rate"]
+                derotated = derotate_flow(raw_flow, yaw_rate, DECISION_INTERVAL_STEPS * PHYSICS_DT)
+                flow = grid_flow_strengths(derotated)
+
+                # Skip the safety layer during the pre-exploration hover -
+                # see the matching comment in main.py for why (its stuck-
+                # detector would otherwise prime on the intentional hover).
+                exploring = flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
+                if exploring:
+                    raw_cmd = controller.decide(flow, state_now)
+                    cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"])
+                else:
+                    cmd = dict(EMPTY_CMD)
+                    safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
+                apply_command(drone, cmd)
+                is_avoidance = safety_info["active"]
             prev_gray = gray
 
             state = drone.get_state()

@@ -27,11 +27,15 @@ GRAVITY = 9.81
 
 # --- Tunable parameters -----------------------------------------------
 MASS = 1.0                 # kg
-HOVER_ALTITUDE = 1.2       # m - fixed altitude for v1 (FlyBrain doesn't control this yet)
-MIN_ALTITUDE = 0.3         # m - safety floor while flying
-MAX_ALTITUDE = 2.5         # m - safety ceiling
-MAX_SPEED = 0.6            # m/s - safety cap on commanded horizontal speed (kept
-                            # low while avoidance is unreliable - see item 5)
+MIN_ALTITUDE = 0.5         # m - safety floor while flying (never flies into the ground)
+NORMAL_ALTITUDE = 1.5      # m - default cruise altitude; also the takeoff target,
+                            # and what relax_altitude() pulls back toward when
+                            # nothing has a reason to climb/descend
+MAX_ALTITUDE = 3.0         # m - safety ceiling
+MAX_SPEED = 1.3            # m/s - safety cap on commanded horizontal speed (must
+                            # stay above controllers/safety_layer.py's FAST_SPEED,
+                            # or the "go fast in open space" upgrade gets clamped
+                            # away uselessly)
 MAX_YAW_RATE = 1.5         # rad/s
 MAX_TILT = 0.30            # rad (~17 deg) - cap on how hard it'll lean over
 
@@ -42,10 +46,8 @@ MAX_TILT = 0.30            # rad (~17 deg) - cap on how hard it'll lean over
 SAFETY_DISTANCE = 0.6      # m - forward motion gets capped to 0 past this
 CRITICAL_DISTANCE = 0.3    # m - forces a backward retreat past this
 RETREAT_SPEED = 0.25       # m/s - how hard it backs away when critical
-ALTITUDE_STEP = 0.015      # m added to target altitude per move_up/move_down
-                            # call (main.py calls this once per ~30Hz decision
-                            # cycle while a key is held, so this is roughly a
-                            # 0.45 m/s manual climb/descend rate)
+ALTITUDE_STEP = 0.02       # m added to target altitude per move_up/move_down call
+RETURN_TO_NORMAL_STEP = 0.01  # m per relax_altitude() call (see relax_altitude)
 
 ALT_KP, ALT_KI, ALT_KD = 10.0, 1.0, 9.0         # altitude error (m) -> thrust (N)
 VEL_TO_TILT_KP = 0.18                           # velocity error (m/s) -> target tilt (rad)
@@ -99,7 +101,7 @@ class PyBulletDrone(DroneInterface):
 
     def _reset_flight_vars(self):
         self.state = "idle"  # idle | taking_off | flying | emergency | landing | landed
-        self.target_altitude = HOVER_ALTITUDE
+        self.target_altitude = NORMAL_ALTITUDE
         self._landing_altitude = None
         self.target_vx = 0.0
         self.target_vy = 0.0
@@ -121,7 +123,7 @@ class PyBulletDrone(DroneInterface):
     def takeoff(self):
         if self.state in ("idle", "landed"):
             self.state = "taking_off"
-            self.target_altitude = HOVER_ALTITUDE
+            self.target_altitude = NORMAL_ALTITUDE
 
     def land(self):
         if self.state in ("flying", "emergency", "taking_off"):
@@ -146,12 +148,28 @@ class PyBulletDrone(DroneInterface):
         self.target_vy = -max(-MAX_SPEED, min(MAX_SPEED, speed))
 
     def move_up(self):
-        """Manual-only altitude nudge (not part of DroneInterface - v1's
-        autonomous controller deliberately doesn't control altitude)."""
+        """Nudge the target altitude up by one step. Not part of the
+        abstract DroneInterface (real hardware may expose altitude control
+        differently) - both manual and autonomous control call this
+        directly on PyBulletDrone. Call every decision cycle while
+        climbing is wanted; call relax_altitude() instead when it isn't,
+        so it drifts back toward NORMAL_ALTITUDE."""
         self.target_altitude = min(MAX_ALTITUDE, self.target_altitude + ALTITUDE_STEP)
 
     def move_down(self):
         self.target_altitude = max(MIN_ALTITUDE, self.target_altitude - ALTITUDE_STEP)
+
+    def relax_altitude(self):
+        """Call once per decision cycle whenever nothing wants to climb or
+        descend. Nudges target_altitude back toward NORMAL_ALTITUDE rather
+        than leaving it wherever the last move_up/move_down left it -
+        "normally return toward NORMAL_ALTITUDE when there is no reason to
+        go higher/lower." Small step size so it never fights an active
+        move_up/move_down happening on other cycles."""
+        if self.target_altitude > NORMAL_ALTITUDE:
+            self.target_altitude = max(NORMAL_ALTITUDE, self.target_altitude - RETURN_TO_NORMAL_STEP)
+        elif self.target_altitude < NORMAL_ALTITUDE:
+            self.target_altitude = min(NORMAL_ALTITUDE, self.target_altitude + RETURN_TO_NORMAL_STEP)
 
     def turn_left(self, rate):
         self.target_yaw_rate = max(-MAX_YAW_RATE, min(MAX_YAW_RATE, rate))
@@ -310,7 +328,7 @@ class PyBulletDrone(DroneInterface):
         altitude = self._current_altitude()
         vz = self.body.get_state()["linear_velocity"][2]
 
-        if self.state == "taking_off" and abs(altitude - HOVER_ALTITUDE) < 0.05 and abs(vz) < 0.1:
+        if self.state == "taking_off" and abs(altitude - NORMAL_ALTITUDE) < 0.05 and abs(vz) < 0.1:
             self.state = "flying"
 
         elif self.state == "landing" and altitude < 0.08 and abs(vz) < 0.1:
