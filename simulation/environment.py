@@ -73,15 +73,20 @@ def build_environment():
 
     # Soft flight-area boundary for controllers/reflex_controller.py's
     # BOUNDARY_RETURN state. X range covers the whole obstacle course plus
-    # COURSE_MARGIN on each end; Y is pulled in slightly from the y=+-3
-    # perimeter walls (which are physical obstacles the flow system also
-    # avoids on its own) so the soft boundary triggers a little before the
-    # drone would ever reach the wall.
+    # COURSE_MARGIN on each end; Y is pulled in from the y=+-3 perimeter
+    # walls (physical obstacles the flow system also avoids on its own) by
+    # enough real distance (0.9m, not the earlier 0.3m) to give
+    # BOUNDARY_RETURN room to actually turn the drone around before it
+    # reaches the wall - found by testing: a fast excursion (e.g. during
+    # EMERGENCY_ESCAPE's reverse+turn, which has real momentum and doesn't
+    # stop the drone instantly) could cross a thinner margin in a single
+    # decision cycle and hit the wall before BOUNDARY_RETURN got a chance
+    # to respond.
     bounds = {
         "min_x": -COURSE_MARGIN,
         "max_x": GOAL_X + COURSE_MARGIN,
-        "min_y": -2.7,
-        "max_y": 2.7,
+        "min_y": -2.0,
+        "max_y": 2.0,
         "center_x": GOAL_X / 2,
         "center_y": 0.0,
     }

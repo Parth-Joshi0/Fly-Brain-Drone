@@ -37,8 +37,9 @@ nothing else in this file, or in controllers/ or vision/, needs to change.
 
 import cv2
 
-from interfaces.pybullet_simulator import PyBulletSimulator
-from controllers.reflex_controller import ReflexController
+from simulation.environment import build_environment
+from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
+from controllers.reflex_controller import ReflexController, EXPLORATION_GRID_SIZE
 from controllers.manual_controller import ManualController
 from controllers.safety_layer import SafetyLayer
 from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer
@@ -59,11 +60,18 @@ HOVER_BEFORE_EXPLORE_CYCLES = 45  # ~1.5s at 30Hz: "take off, hover briefly,
 
 _ACTION_FOR_STATE = {
     "CRUISE": "FORWARD",
-    "AVOID_LEFT": "TURN LEFT",
-    "AVOID_RIGHT": "TURN RIGHT",
+    "AVOID_LEFT": "WALL LEFT -> TURN RIGHT",
+    "AVOID_RIGHT": "WALL RIGHT -> TURN LEFT",
+    "WALL_ESCAPE": "WALL ESCAPE",
+    "EMERGENCY_ESCAPE": "EMERGENCY ESCAPE",
     "BOUNDARY_RETURN": "RETURN TO COURSE",
     "ESCAPE": "ESCAPE (Giant Fiber)",  # FlyBrainController only
 }
+
+# States where the navigation FSM is already actively steering away from
+# something - SafetyLayer won't layer its own (possibly disagreeing) turn
+# decision on top of any of these, see already_avoiding in its apply().
+_AVOIDING_STATES = ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN", "WALL_ESCAPE", "EMERGENCY_ESCAPE")
 
 EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
              "altitude_delta": 0.0, "hover": False, "land": False, "reset": False,
@@ -95,15 +103,19 @@ def action_label(mode, nav_state, safety_info):
     return _ACTION_FOR_STATE.get(nav_state, nav_state)
 
 
-def draw_debug_overlay(frame, mode, nav_state, state, final_cmd, safety_info, flow):
+def draw_debug_overlay(frame, mode, autonomous, state, final_cmd, safety_info, flow):
     dist = state["min_obstacle_distance"]
     dist_str = f"{dist:.2f}m" if dist is not None else "n/a"
+    nav_state = autonomous.state
     action = action_label(mode, nav_state, safety_info)
     lines = [
         f"MODE: {mode.upper()}  (M to switch)   STATE: {nav_state}",
         f"ACTION: {action}",
         f"LEFT FLOW: {flow['left']:.2f}   CENTER FLOW: {flow['center']:.2f}   RIGHT FLOW: {flow['right']:.2f}",
-        f"cmd: fwd={final_cmd['forward_speed']:.2f}m/s  yaw={final_cmd['yaw_rate']:.2f}rad/s",
+        f"FORWARD SPEED: {final_cmd['forward_speed']:.2f}m/s   TURN CMD: {autonomous.turn_command}"
+        f"   yaw_rate: {final_cmd['yaw_rate']:.2f}rad/s",
+        f"GRID CELL: {autonomous.current_cell}   LEAST-VISITED: {autonomous.least_visited_cell}"
+        f"   TIME NEAR WALL: {autonomous.wall_time_seconds:.1f}s",
         f"alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m   yaw: {state['yaw_degrees']:.0f}deg",
         f"pos: ({state['position'][0]:.1f}, {state['position'][1]:.1f})   "
         f"forward_vel: {state['actual_vx']:.2f}m/s",
@@ -117,6 +129,57 @@ def draw_debug_overlay(frame, mode, nav_state, state, final_cmd, safety_info, fl
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
                     0.42, color, 1, cv2.LINE_AA)
     return out
+
+
+def update_debug_camera(position):
+    """Keeps the PyBullet 3D viewport centered on the drone at a fixed
+    distance/angle - "easy to watch" without the user needing to manually
+    pan/zoom, and without zooming in so tight that nearby obstacles fall
+    out of view."""
+    p.resetDebugVisualizerCamera(
+        cameraDistance=DEBUG_CAMERA_DISTANCE,
+        cameraYaw=DEBUG_CAMERA_YAW,
+        cameraPitch=DEBUG_CAMERA_PITCH,
+        cameraTargetPosition=position,
+    )
+
+
+def draw_heading_line(position, yaw_degrees, line_id):
+    """A short line in the PyBullet 3D view showing the drone's current
+    forward direction. Reuses the same debug-item id every call
+    (replaceItemUniqueId) so it updates in place instead of accumulating
+    thousands of lines."""
+    yaw = math.radians(yaw_degrees)
+    end = [
+        position[0] + HEADING_LINE_LENGTH * math.cos(yaw),
+        position[1] + HEADING_LINE_LENGTH * math.sin(yaw),
+        position[2],
+    ]
+    if line_id is None:
+        return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3)
+    return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3,
+                               replaceItemUniqueId=line_id)
+
+
+def draw_arena_debug_lines(bounds, grid_size, z=0.05):
+    """One-time debug draw of the soft flight-area boundary rectangle plus
+    the exploration grid cells inside it, in PyBullet world space. Static
+    geometry (the boundary/grid never move), so unlike the heading line
+    this is just drawn once and left alone rather than redrawn per frame."""
+    min_x, max_x = bounds["min_x"], bounds["max_x"]
+    min_y, max_y = bounds["min_y"], bounds["max_y"]
+    corners = [
+        [min_x, min_y, z], [max_x, min_y, z],
+        [max_x, max_y, z], [min_x, max_y, z],
+    ]
+    for i in range(4):
+        p.addUserDebugLine(corners[i], corners[(i + 1) % 4], lineColorRGB=[0, 0.8, 1], lineWidth=2)
+
+    for i in range(1, grid_size):
+        x = min_x + (max_x - min_x) * i / grid_size
+        p.addUserDebugLine([x, min_y, z], [x, max_y, z], lineColorRGB=[0, 0.4, 0.6], lineWidth=1)
+        y = min_y + (max_y - min_y) * i / grid_size
+        p.addUserDebugLine([min_x, y, z], [max_x, y, z], lineColorRGB=[0, 0.4, 0.6], lineWidth=1)
 
 
 def apply_command(drone, cmd):
@@ -177,7 +240,8 @@ def main():
     else:
         autonomous = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
-    flow_viz = None  # lazily sized from the first camera frame (see below)
+    flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
+    draw_arena_debug_lines(env["bounds"], EXPLORATION_GRID_SIZE)
 
     mode = "autonomous"  # fully autonomous by default (item 1) - press M for manual
     drone.takeoff()
@@ -243,7 +307,7 @@ def main():
                 # already_avoiding tells it the FSM is already turning
                 # away from something, so it won't add a second,
                 # possibly-disagreeing turn decision on top.
-                already_avoiding = autonomous.state in ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN")
+                already_avoiding = autonomous.state in _AVOIDING_STATES
                 final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
             else:
                 final_cmd = raw_cmd
@@ -260,15 +324,16 @@ def main():
             sim.update_debug_view(state["position"], state["yaw_degrees"])
 
             cv2.imshow("Drone Camera", draw_debug_overlay(
-                frame, mode, autonomous.state, state, final_cmd, safety_info, flow))
+                frame, mode, autonomous, state, final_cmd, safety_info, flow))
             cv2.waitKey(1)
 
             if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
                 action = action_label(mode, autonomous.state, safety_info)
                 print(
-                    f"[{mode:>10}][STATE={autonomous.state:>15}][ACTION={action:>18}] "
-                    f"alt={state['altitude']:.2f}m yaw={state['yaw_degrees']:.0f}deg "
-                    f"speed={state['horizontal_speed']:.2f}m/s "
+                    f"[{mode:>10}][STATE={autonomous.state:>17}][ACTION={action:>22}] "
+                    f"fwd={final_cmd['forward_speed']:.2f}m/s turn={autonomous.turn_command:>9} "
+                    f"cell={autonomous.current_cell} least_visited={autonomous.least_visited_cell} "
+                    f"wall_time={autonomous.wall_time_seconds:.1f}s "
                     f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
                     f"collided={state['collided']} avoidance={safety_info['active']} stuck={safety_info['stuck']} "
                     f"LEFT={flow['left']:.2f} CENTER={flow['center']:.2f} RIGHT={flow['right']:.2f}",

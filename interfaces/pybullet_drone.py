@@ -50,6 +50,15 @@ MAX_TILT = 0.45            # rad (~26 deg) - cap on how hard it'll lean over. Th
 SAFETY_DISTANCE = 0.6      # m - forward motion gets capped to 0 past this
 CRITICAL_DISTANCE = 0.3    # m - forces a backward retreat past this
 RETREAT_SPEED = 0.25       # m/s - how hard it backs away when critical
+FORWARD_CONE_DEGREES = 70  # half-angle around the nose that counts as "ahead"
+                            # for this net - found by testing to be the actual
+                            # root cause of the drone stopping beside a wall it
+                            # was correctly steering around: the old version
+                            # used the nearest point on ANY obstacle regardless
+                            # of direction, so a wall merely alongside (not in
+                            # the flight path) within SAFETY_DISTANCE zeroed
+                            # forward_speed anyway. This makes the net ignore
+                            # anything not roughly in front.
 ALTITUDE_STEP = 0.02       # m added to target altitude per move_up/move_down call
 RETURN_TO_NORMAL_STEP = 0.01  # m per relax_altitude() call (see relax_altitude)
 
@@ -262,7 +271,7 @@ class PyBulletDrone(DroneInterface):
         # --- Proximity safety net: overrides whatever was commanded (manual
         # or autonomous) using real physics distance, independent of - and a
         # backstop for - the reflex controller's own (imperfect) avoidance.
-        self.min_obstacle_distance = self._closest_obstacle_distance()
+        self.min_obstacle_distance = self._closest_obstacle_distance(position, yaw)
         self.safety_override = False
         target_vx, target_vy = self.target_vx, self.target_vy
 
@@ -318,15 +327,32 @@ class PyBulletDrone(DroneInterface):
             return self._landing_altitude
         return max(MIN_ALTITUDE, min(MAX_ALTITUDE, self.target_altitude))
 
-    def _closest_obstacle_distance(self):
+    def _closest_obstacle_distance(self, position, yaw):
+        """Distance to the nearest obstacle point roughly AHEAD of the
+        drone - within FORWARD_CONE_DEGREES of its current heading, not
+        just the nearest point on any obstacle in any direction. Direction-
+        aware on purpose (see the note by FORWARD_CONE_DEGREES): this is a
+        forward-motion safety cap, so a wall merely alongside the drone
+        (being correctly steered around, not driven toward) must not count."""
         if not self.obstacle_ids:
             return None
-        distances = [
-            self.body.closest_distance(oid, max_distance=2.0)
-            for oid in self.obstacle_ids
-        ]
-        distances = [d for d in distances if d is not None]
-        return min(distances) if distances else None
+        fwd_x, fwd_y = math.cos(yaw), math.sin(yaw)
+        cos_limit = math.cos(math.radians(FORWARD_CONE_DEGREES))
+
+        best = None
+        for oid in self.obstacle_ids:
+            pts = p.getClosestPoints(self.body.id, oid, distance=2.0)
+            for pt in pts:
+                point_on_obstacle = pt[6]
+                dx = point_on_obstacle[0] - position[0]
+                dy = point_on_obstacle[1] - position[1]
+                dist_xy = math.hypot(dx, dy)
+                cos_angle = 1.0 if dist_xy < 1e-6 else (dx * fwd_x + dy * fwd_y) / dist_xy
+                if cos_angle >= cos_limit:
+                    d = pt[8]
+                    if best is None or d < best:
+                        best = d
+        return best
 
     def _run_state_machine(self):
         altitude = self._current_altitude()

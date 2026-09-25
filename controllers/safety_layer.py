@@ -126,9 +126,10 @@ class SafetyLayer:
         vision.optical_flow.grid_flow_strengths (must have at least
         left/right/top/bottom/center). position: the drone's (x, y, z).
         already_avoiding: True when the caller's own navigation state
-        machine (reflex_controller.py) is already in AVOID_LEFT/
-        AVOID_RIGHT - i.e. it's already turning away from something,
-        not just cruising. When True, this layer won't add its own
+        machine (reflex_controller.py) is already in one of its own
+        avoidance states (AVOID_LEFT/AVOID_RIGHT/WALL_ESCAPE/
+        EMERGENCY_ESCAPE/BOUNDARY_RETURN) - i.e. it's already turning
+        away from something, not just cruising. When True, this layer won't add its own
         DANGER-tier direction override on top: two independent
         turn-deciders reacting to the same flow reading disagreed often
         enough in testing to fight each other and spin - a real,
