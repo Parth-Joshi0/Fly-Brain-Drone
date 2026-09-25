@@ -5,6 +5,9 @@ into a 3x3 grid (TOP/CENTER/BOTTOM x LEFT/CENTER/RIGHT). These are the
 later, the FlyBrain network.
 """
 
+from collections import deque
+import math
+
 import cv2
 import numpy as np
 
@@ -102,6 +105,117 @@ def grid_flow_strengths(flow, ground_fraction=0.8):
         "bottom": (grid["bottom_left"] + grid["bottom_center"] + grid["bottom_right"]) / 3,
         "center": grid["center_center"],
     }
+
+
+# Camera frame axes (x right, y down, z forward) in terms of the drone body
+# frame (x forward, y left, z up) - DroneCamera looks along body +X, up = +Z.
+_BODY_TO_CAMERA = np.array([[0, -1, 0], [0, 0, -1], [1, 0, 0]], dtype=float)
+
+# Smoother than compute_flow()'s settings: expansion is a spatial
+# *derivative* of flow, so it needs a cleaner field than magnitude does.
+_LOOMING_FARNEBACK = dict(pyr_scale=0.5, levels=3, winsize=21, iterations=3,
+                          poly_n=7, poly_sigma=1.5, flags=0)
+
+
+def _quat_to_matrix(q):
+    x, y, z, w = q
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+class LoomingDetector:
+    """Per-column (left/center/right) image expansion rate, in 1/s - the
+    looming signal LC4/LPLC2 respond to, as opposed to grid_flow_strengths'
+    plain flow magnitude.
+
+    Why expansion instead of magnitude: magnitude can't tell "something is
+    approaching" from "I'm moving", and it's near zero at the dead center of
+    a head-on approach (the focus of expansion barely moves). Expansion
+    (flow divergence) of an approaching surface is ~2 / time-to-contact
+    whatever is doing the moving, and it's strongest exactly there.
+
+    How:
+    - Full rotation removal: the older frame is warped by the camera's
+      known rotation between the two frames (homography K R K^-1, from the
+      drone's orientation) before computing flow, so pitch/roll/yaw add
+      nothing. derotate_flow() above only removes the mean yaw shift, and
+      rotation on a wide-FOV camera also produces divergence toward the
+      image edges (~3 x rotation rate) that a mean shift can't remove.
+    - Two-frame baseline: at 320x240/30Hz an object 2m out expands by under
+      a pixel per frame, below what Farneback resolves reliably.
+    - Expansion per cell is a least-squares affine fit (du/dx + dv/dy) over
+      a 40px cell rather than a per-pixel derivative, which spikes at
+      occlusion edges; the column value is its most-expanding cell, since
+      an object 2m away only fills about one cell.
+    - A 3-sample median then EMA over time: single-frame Farneback glitches
+      otherwise read as brief huge expansions.
+
+    Calibrated in the sim against ground-truth time-to-contact: tracks
+    ~2/TTC on a head-on approach from ~1.7s out; background while
+    maneuvering (yaw, strafe, hard braking) stays mostly below ~2-3.5/s.
+    """
+
+    def __init__(self, width=320, height=240, fov=75, baseline=2, cell=40,
+                 margin=16, smoothing=0.5, median_window=3):
+        f = (height / 2) / math.tan(math.radians(fov) / 2)
+        self._K = np.array([[f, 0, width / 2], [0, f, height / 2], [0, 0, 1]])
+        self._K_inv = np.linalg.inv(self._K)
+        self._size = (width, height)
+        self._cell = cell
+        self._margin = margin
+        self._smoothing = smoothing
+        c = np.arange(cell) - (cell - 1) / 2
+        self._offsets = c
+        self._offset_var = (c ** 2).sum() * cell
+        self._frames = deque(maxlen=baseline + 1)
+        self._recent = deque(maxlen=median_window)
+        self._smoothed = np.zeros(3)
+
+    def reset(self):
+        self._frames.clear()
+        self._recent.clear()
+        self._smoothed = np.zeros(3)
+
+    def update(self, gray, orientation, dt):
+        """gray: current grayscale frame. orientation: the drone's body
+        quaternion (x, y, z, w) when it was captured. dt: seconds between
+        update() calls. Returns {"left", "center", "right"} expansion rates."""
+        self._frames.append((gray, orientation))
+        if len(self._frames) < 2:
+            return self._as_dict()
+
+        old_gray, old_q = self._frames[0]
+        frames_apart = len(self._frames) - 1
+        R_old, R_new = _quat_to_matrix(old_q), _quat_to_matrix(orientation)
+        C = _BODY_TO_CAMERA
+        H = self._K @ C @ R_new.T @ R_old @ C.T @ self._K_inv
+        old_aligned = cv2.warpPerspective(old_gray, H, self._size, flags=cv2.INTER_LINEAR,
+                                          borderMode=cv2.BORDER_REPLICATE)
+        flow = cv2.calcOpticalFlowFarneback(old_aligned, gray, None, **_LOOMING_FARNEBACK)
+
+        expansion = self._cell_expansion(flow) / (frames_apart * dt)
+        columns = np.array_split(np.arange(expansion.shape[1]), 3)
+        self._recent.append([expansion[:, cols].max() for cols in columns])
+        a = self._smoothing
+        self._smoothed = a * np.median(np.array(self._recent), axis=0) + (1 - a) * self._smoothed
+        return self._as_dict()
+
+    def _cell_expansion(self, flow):
+        m, cell = self._margin, self._cell
+        region = flow[m:flow.shape[0] - m, m:flow.shape[1] - m]
+        rows, cols = region.shape[0] // cell, region.shape[1] // cell
+        cells = region[:rows * cell, :cols * cell].reshape(rows, cell, cols, cell, 2)
+        c = self._offsets
+        du_dx = (cells[..., 0] * c[None, None, None, :]).sum(axis=(1, 3)) / self._offset_var
+        dv_dy = (cells[..., 1] * c[None, :, None, None]).sum(axis=(1, 3)) / self._offset_var
+        return du_dx + dv_dy
+
+    def _as_dict(self):
+        left, center, right = self._smoothed
+        return {"left": float(left), "center": float(center), "right": float(right)}
 
 
 class FlowVisualizer:

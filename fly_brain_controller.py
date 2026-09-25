@@ -275,7 +275,20 @@ class FlyBrainController:
             + rate_of("DNp06", "left") + rate_of("DNp06", "right")
         forward = max(0.0, 1.0 - forward_drive / (2 * FORWARD_SAT_HZ))
 
-        return {"yaw": float(yaw), "forward": float(forward), "escape": float(escape)}
+        # Raw (unsmoothed) spike count for each of the 6 output DN neurons
+        # in this exact 20ms window - literally "did it fire, how many
+        # times" - as opposed to rate_hz above, which is an EMA-smoothed
+        # rate meant for smooth flight control, not for showing someone
+        # the actual firing events.
+        spike_counts = {
+            f"{n['cell_type']}_{n['side']}": int(delta[i])
+            for i, n in enumerate(self._outputs)
+        }
+
+        return {
+            "yaw": float(yaw), "forward": float(forward), "escape": float(escape),
+            "spike_counts": spike_counts,
+        }
 
 
 def _serve_stdio():

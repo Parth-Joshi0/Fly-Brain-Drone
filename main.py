@@ -23,6 +23,10 @@ Manual-only movement (only read while in MANUAL mode):
     W/S           altitude up / down
     Q/E           yaw left / right
 
+Debug: left-click anywhere in the sim window to spawn a block that flies
+straight at the drone from wherever it's currently facing - an on-demand
+looming stimulus for testing the escape reflex (works in either mode).
+
 Run:
     python main.py
 
@@ -42,7 +46,7 @@ from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
 from controllers.reflex_controller import ReflexController, EXPLORATION_GRID_SIZE
 from controllers.manual_controller import ManualController
 from controllers.safety_layer import SafetyLayer
-from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer
+from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
 
 # The hand-written CRUISE/AVOID_LEFT/AVOID_RIGHT state machine (default),
 # or the real Fly-Brain connectome circuit (controllers/
@@ -52,6 +56,17 @@ from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths
 # installed (see fly_brain_controller.py's docstring); it's spawned as a
 # subprocess, so this venv itself doesn't need those.
 USE_FLYBRAIN = True
+
+# Debug: when True, the autonomous controller still runs every cycle off
+# live optic flow (so FlyBrainController's neurons keep firing off the
+# real camera feed, logged to flybrain_spikes.log - see its
+# _log_spikes()), but its forward/yaw output is discarded and the drone
+# just hovers in place instead of actually flying on it - except for the
+# Giant Fiber ESCAPE dodge, which is let through. Isolates "is the
+# circuit reacting correctly to something looming" from the flight
+# dynamics - useful together with the click-to-spawn test obstacle, since
+# the drone no longer drifts/turns out of the obstacle's straight-line path.
+NEURON_TEST_MODE = True
 
 DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
                                # ~20-30 FPS range requested for the camera
@@ -65,13 +80,12 @@ _ACTION_FOR_STATE = {
     "WALL_ESCAPE": "WALL ESCAPE",
     "EMERGENCY_ESCAPE": "EMERGENCY ESCAPE",
     "BOUNDARY_RETURN": "RETURN TO COURSE",
-    "ESCAPE": "ESCAPE (Giant Fiber)",  # FlyBrainController only
 }
 
 # States where the navigation FSM is already actively steering away from
 # something - SafetyLayer won't layer its own (possibly disagreeing) turn
 # decision on top of any of these, see already_avoiding in its apply().
-_AVOIDING_STATES = ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN", "WALL_ESCAPE", "EMERGENCY_ESCAPE")
+_AVOIDING_STATES = ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN", "WALL_ESCAPE", "EMERGENCY_ESCAPE", "ESCAPE")
 
 EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
              "altitude_delta": 0.0, "hover": False, "land": False, "reset": False,
@@ -82,14 +96,17 @@ def emergency_keys(input_state):
     """Space/L/R work in both manual and autonomous mode - these are the
     keys item 1 says to keep regardless of mode (emergency hover,
     emergency land, reset)."""
-    return {
+    keys = {
         "hover": input_state["hover"],
         "land": input_state["land_pressed"],
         "reset": input_state["reset_pressed"],
     }
+    # Only pressed keys: an unpressed Space must not clear a hover the
+    # command already asked for (NEURON_TEST_MODE's hover got overwritten).
+    return {name: True for name, pressed in keys.items() if pressed}
 
 
-def action_label(mode, nav_state, safety_info):
+def action_label(mode, controller, safety_info):
     """The single, human-readable "what is it doing right now" string -
     an emergency override (SafetyLayer) always takes priority to display
     over the navigation controller's own state, since it means the
@@ -100,22 +117,33 @@ def action_label(mode, nav_state, safety_info):
         return f"EMERGENCY {safety_info['direction']}"
     if mode != "autonomous":
         return "MANUAL"
-    return _ACTION_FOR_STATE.get(nav_state, nav_state)
+    if controller.state == "ESCAPE":
+        return f"ESCAPE {controller.escape_direction} (Giant Fiber)"
+    return _ACTION_FOR_STATE.get(controller.state, controller.state)
 
 
-def draw_debug_overlay(frame, mode, autonomous, state, final_cmd, safety_info, flow):
+def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, flow):
+    nav_state = controller.state
     dist = state["min_obstacle_distance"]
     dist_str = f"{dist:.2f}m" if dist is not None else "n/a"
-    nav_state = autonomous.state
-    action = action_label(mode, nav_state, safety_info)
+    action = action_label(mode, controller, safety_info)
     lines = [
         f"MODE: {mode.upper()}  (M to switch)   STATE: {nav_state}",
         f"ACTION: {action}",
         f"LEFT FLOW: {flow['left']:.2f}   CENTER FLOW: {flow['center']:.2f}   RIGHT FLOW: {flow['right']:.2f}",
-        f"FORWARD SPEED: {final_cmd['forward_speed']:.2f}m/s   TURN CMD: {autonomous.turn_command}"
-        f"   yaw_rate: {final_cmd['yaw_rate']:.2f}rad/s",
-        f"GRID CELL: {autonomous.current_cell}   LEAST-VISITED: {autonomous.least_visited_cell}"
-        f"   TIME NEAR WALL: {autonomous.wall_time_seconds:.1f}s",
+        f"EXPANSION (1/s): L={flow['expansion_left']:.2f} C={flow['expansion_center']:.2f} "
+        f"R={flow['expansion_right']:.2f}",
+        f"cmd: fwd={final_cmd['forward_speed']:.2f}m/s  yaw={final_cmd['yaw_rate']:.2f}rad/s",
+    ]
+    if hasattr(controller, "current_cell"):
+        # ReflexController-only: FlyBrainController doesn't track an
+        # exploration grid, so these fields don't apply to it.
+        lines.append(
+            f"TURN CMD: {controller.turn_command}   GRID CELL: {controller.current_cell}   "
+            f"LEAST-VISITED: {controller.least_visited_cell}   "
+            f"TIME NEAR WALL: {controller.wall_time_seconds:.1f}s"
+        )
+    lines += [
         f"alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m   yaw: {state['yaw_degrees']:.0f}deg",
         f"pos: ({state['position'][0]:.1f}, {state['position'][1]:.1f})   "
         f"forward_vel: {state['actual_vx']:.2f}m/s",
@@ -240,35 +268,41 @@ def main():
     else:
         autonomous = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
-    flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
-    draw_arena_debug_lines(env["bounds"], EXPLORATION_GRID_SIZE)
+    flow_viz = None  # lazily sized from the first camera frame (see below)
+    looming = LoomingDetector()
 
     mode = "autonomous"  # fully autonomous by default (item 1) - press M for manual
     drone.takeoff()
     prev_gray = None
-    flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0}
+    flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0,
+            "expansion_left": 0.0, "expansion_center": 0.0, "expansion_right": 0.0}
     final_cmd = dict(EMPTY_CMD)
     safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
     flying_cycle_count = 0  # counts decision cycles spent in "flying" state,
                              # for the "hover briefly before exploring" grace period
+    was_exploring = False
 
     step_count = 0
     while True:
         drone.step()
 
         if step_count % DECISION_INTERVAL_STEPS == 0:
+            decision_dt = DECISION_INTERVAL_STEPS * sim.physics_dt
+
             frame = drone.get_camera_frame()
+            capture_state = drone.get_state()
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if flow_viz is None:
                 height, width = gray.shape[:2]
                 flow_viz = FlowVisualizer(width, height)
 
+            expansion = looming.update(gray, capture_state["orientation"], decision_dt)
             if prev_gray is not None:
                 raw_flow = compute_flow(prev_gray, gray)
-                yaw_rate = drone.get_state()["yaw_rate"]
-                derotated = derotate_flow(raw_flow, yaw_rate, DECISION_INTERVAL_STEPS * sim.physics_dt)
+                derotated = derotate_flow(raw_flow, capture_state["yaw_rate"], decision_dt)
                 flow = grid_flow_strengths(derotated)
                 cv2.imshow("Optical Flow", flow_viz.render(derotated))
+            flow.update({f"expansion_{side}": value for side, value in expansion.items()})
             prev_gray = gray
 
             input_state = sim.poll_input()
@@ -290,11 +324,23 @@ def main():
             # immediately (and permanently) thinks it's stuck the moment
             # exploring starts.
             exploring = mode == "autonomous" and flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
+            if was_exploring and not exploring:
+                # decide() stops being called (collision emergency, landing,
+                # manual mode) - without this the HUD kept showing whatever
+                # state it was last in, e.g. ESCAPE, indefinitely.
+                autonomous.reset()
+            was_exploring = exploring
 
             if mode == "manual":
                 raw_cmd = manual.decide(input_state)
             elif exploring:
-                raw_cmd = autonomous.decide(flow, state_now)
+                raw_cmd = autonomous.decide(flow, state_now)  # still runs on live
+                                                                # flow even in test mode -
+                                                                # only its movement gets
+                                                                # thrown away below
+                if NEURON_TEST_MODE and autonomous.state != "ESCAPE":
+                    raw_cmd = dict(EMPTY_CMD)
+                    raw_cmd["hover"] = True
                 raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
             else:
                 raw_cmd = dict(EMPTY_CMD)
@@ -316,19 +362,21 @@ def main():
             # 3. Send the final (possibly overridden) command to the drone
             if apply_command(drone, final_cmd):
                 prev_gray = None
+                looming.reset()
                 flying_cycle_count = 0
                 autonomous.reset()
                 safety.reset()
 
             state = drone.get_state()
             sim.update_debug_view(state["position"], state["yaw_degrees"])
+            sim.update_test_obstacles(state["position"], state["yaw_degrees"], decision_dt)
 
             cv2.imshow("Drone Camera", draw_debug_overlay(
                 frame, mode, autonomous, state, final_cmd, safety_info, flow))
             cv2.waitKey(1)
 
             if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
-                action = action_label(mode, autonomous.state, safety_info)
+                action = action_label(mode, autonomous, safety_info)
                 print(
                     f"[{mode:>10}][STATE={autonomous.state:>17}][ACTION={action:>22}] "
                     f"fwd={final_cmd['forward_speed']:.2f}m/s turn={autonomous.turn_command:>9} "
