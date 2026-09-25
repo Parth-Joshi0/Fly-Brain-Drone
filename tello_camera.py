@@ -1,23 +1,30 @@
 from djitellopy import Tello
 import cv2
-
-print("STEP 1: File started")
+import time
 
 tello = Tello()
 
-print("STEP 2: Tello created")
-
 tello.connect(wait_for_state=False)
-print("STEP 3: Connected")
+print("Connected!")
+
+tello.streamoff()
+time.sleep(1)
 
 tello.streamon()
-print("STEP 4: Camera stream ON")
+print("Stream ON")
 
-frame_reader = tello.get_frame_read()
-print("STEP 5: Frame reader started")
+time.sleep(3)
+
+frame_read = tello.get_frame_read()
 
 while True:
-    frame = frame_reader.frame
+    frame = frame_read.frame
+
+    if frame is None:
+        print("Waiting for video...")
+        continue
+
+    print("Frame received:", frame.shape)
 
     cv2.imshow("Tello Camera", frame)
 
@@ -25,4 +32,5 @@ while True:
         break
 
 tello.streamoff()
+tello.end()
 cv2.destroyAllWindows()
