@@ -1,36 +1,59 @@
-from djitellopy import Tello
-import cv2
+"""
+Live banana detection + ripeness classification over a DJI Tello video feed.
+
+Usage:
+    python tello_camera.py
+"""
+
+import sys
+import os
 import time
+import cv2
+from djitellopy import Tello
 
-tello = Tello()
+# liveDetect.py lives in the food_detection subdirectory
+from food_detection.liveDetect import BananaDetector
 
-tello.connect(wait_for_state=False)
-print("Connected!")
 
-tello.streamoff()
-time.sleep(1)
 
-tello.streamon()
-print("Stream ON")
+def main():
+    detector = BananaDetector()
 
-time.sleep(3)
+    tello = Tello()
+    tello.connect(wait_for_state=False)
+    print("Connected! Battery:", tello.get_battery())
 
-frame_read = tello.get_frame_read()
+    tello.streamoff()
+    time.sleep(1)
+    tello.streamon()
+    print("Stream ON")
+    time.sleep(3)
 
-while True:
-    frame = frame_read.frame
+    frame_read = tello.get_frame_read()
 
-    if frame is None:
-        print("Waiting for video...")
-        continue
+    print("Press 'q' to quit.")
 
-    print("Frame received:", frame.shape)
+    try:
+        while True:
+            frame = frame_read.frame
 
-    cv2.imshow("Tello Camera", frame)
+            if frame is None:
+                time.sleep(0.01)
+                continue
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+            # Tello frames come in as RGB — convert to BGR for OpenCV/YOLO
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-tello.streamoff()
-tello.end()
-cv2.destroyAllWindows()
+            frame, detections = detector.detect_and_annotate(frame)
+
+            cv2.imshow('Tello Banana Ripeness Detection', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        tello.streamoff()
+        tello.end()
+        cv2.destroyAllWindows()
+
+
+if __name__ == '__main__':
+    main()
