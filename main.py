@@ -41,6 +41,7 @@ nothing else in this file, or in controllers/ or vision/, needs to change.
 
 import cv2
 
+from interfaces.pybullet_simulator import PyBulletSimulator, SimulatorError
 from controllers.reflex_controller import ReflexController
 from controllers.manual_controller import ManualController
 from controllers.safety_layer import SafetyLayer
@@ -68,6 +69,7 @@ NEURON_TEST_MODE = True
 
 DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
                                # ~20-30 FPS range requested for the camera
+MAX_CONSECUTIVE_SIM_FAILURES = 10  # see the SimulatorError retry in main()
 HOVER_BEFORE_EXPLORE_CYCLES = 45  # ~1.5s at 30Hz: "take off, hover briefly,
                                    # THEN begin exploring" (item 1)
 
@@ -230,117 +232,156 @@ def main():
     was_exploring = False
 
     step_count = 0
-    while True:
-        drone.step()
+    consecutive_sim_failures = 0
+    try:
+        while True:
+            try:
+                drone.step()
 
-        if step_count % DECISION_INTERVAL_STEPS == 0:
-            decision_dt = DECISION_INTERVAL_STEPS * sim.physics_dt
+                if step_count % DECISION_INTERVAL_STEPS == 0:
+                    decision_dt = DECISION_INTERVAL_STEPS * sim.physics_dt
 
-            frame = drone.get_camera_frame()
-            capture_state = drone.get_state()
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if flow_viz is None:
-                height, width = gray.shape[:2]
-                flow_viz = FlowVisualizer(width, height)
+                    frame = drone.get_camera_frame()
+                    capture_state = drone.get_state()
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    if flow_viz is None:
+                        height, width = gray.shape[:2]
+                        flow_viz = FlowVisualizer(width, height)
 
-            expansion = looming.update(gray, capture_state["orientation"], decision_dt)
-            if prev_gray is not None:
-                raw_flow = compute_flow(prev_gray, gray)
-                derotated = derotate_flow(raw_flow, capture_state["yaw_rate"], decision_dt)
-                flow = grid_flow_strengths(derotated)
-                cv2.imshow("Optical Flow", flow_viz.render(derotated))
-            flow.update({f"expansion_{side}": value for side, value in expansion.items()})
-            prev_gray = gray
+                    expansion = looming.update(gray, capture_state["orientation"], decision_dt)
+                    if prev_gray is not None:
+                        raw_flow = compute_flow(prev_gray, gray)
+                        derotated = derotate_flow(raw_flow, capture_state["yaw_rate"], decision_dt)
+                        flow = grid_flow_strengths(derotated)
+                        cv2.imshow("Optical Flow", flow_viz.render(derotated))
+                    flow.update({f"expansion_{side}": value for side, value in expansion.items()})
+                    prev_gray = gray
 
-            input_state = sim.poll_input()
-            if input_state["mode_toggle_pressed"]:
-                mode = "manual" if mode == "autonomous" else "autonomous"
-                print(f"--- switched to {mode.upper()} mode ---", flush=True)
+                    input_state = sim.poll_input()
+                    if input_state["mode_toggle_pressed"]:
+                        mode = "manual" if mode == "autonomous" else "autonomous"
+                        print(f"--- switched to {mode.upper()} mode ---", flush=True)
 
-            state_now = drone.get_state()
-            if state_now["flight_state"] == "flying":
-                flying_cycle_count += 1
-            else:
-                flying_cycle_count = 0
+                    state_now = drone.get_state()
+                    if state_now["flight_state"] == "flying":
+                        flying_cycle_count += 1
+                    else:
+                        flying_cycle_count = 0
 
-            # Item 1: take off, hover briefly, THEN start exploring. During
-            # that deliberate hover, skip the safety layer entirely rather
-            # than feeding it "not moving" position samples - otherwise
-            # its stuck-detector's window fills with the *intentional*
-            # hover before real navigation ever gets a turn, and it
-            # immediately (and permanently) thinks it's stuck the moment
-            # exploring starts.
-            exploring = mode == "autonomous" and flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
-            if was_exploring and not exploring:
-                # decide() stops being called (collision emergency, landing,
-                # manual mode) - without this the HUD kept showing whatever
-                # state it was last in, e.g. ESCAPE, indefinitely.
-                autonomous.reset()
-            was_exploring = exploring
+                    # Item 1: take off, hover briefly, THEN start exploring. During
+                    # that deliberate hover, skip the safety layer entirely rather
+                    # than feeding it "not moving" position samples - otherwise
+                    # its stuck-detector's window fills with the *intentional*
+                    # hover before real navigation ever gets a turn, and it
+                    # immediately (and permanently) thinks it's stuck the moment
+                    # exploring starts.
+                    exploring = mode == "autonomous" and flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
+                    if was_exploring and not exploring:
+                        # decide() stops being called (collision emergency, landing,
+                        # manual mode) - without this the HUD kept showing whatever
+                        # state it was last in, e.g. ESCAPE, indefinitely.
+                        autonomous.reset()
+                    was_exploring = exploring
 
-            if mode == "manual":
-                raw_cmd = manual.decide(input_state)
-            elif exploring:
-                raw_cmd = autonomous.decide(flow, state_now)  # still runs on live
-                                                                # flow even in test mode -
-                                                                # only its movement gets
-                                                                # thrown away below
-                if NEURON_TEST_MODE and autonomous.state != "ESCAPE":
-                    raw_cmd = dict(EMPTY_CMD)
-                    raw_cmd["hover"] = True
-                raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
-            else:
-                raw_cmd = dict(EMPTY_CMD)
-                raw_cmd.update(emergency_keys(input_state))
+                    if mode == "manual":
+                        raw_cmd = manual.decide(input_state)
+                    elif exploring:
+                        raw_cmd = autonomous.decide(flow, state_now)  # still runs on live
+                                                                        # flow even in test mode -
+                                                                        # only its movement gets
+                                                                        # thrown away below
+                        if NEURON_TEST_MODE and autonomous.state != "ESCAPE":
+                            raw_cmd = dict(EMPTY_CMD)
+                            raw_cmd["hover"] = True
+                        raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
+                    else:
+                        raw_cmd = dict(EMPTY_CMD)
+                        raw_cmd.update(emergency_keys(input_state))
 
-            if mode == "manual" or exploring:
-                # 2. Obstacle safety/reflex layer - final override
-                # authority (this is what makes "hold/request forward
-                # into a wall" impossible even while flying itself).
-                # already_avoiding tells it the FSM is already turning
-                # away from something, so it won't add a second,
-                # possibly-disagreeing turn decision on top.
-                already_avoiding = autonomous.state in _AVOIDING_STATES
-                final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
-            else:
-                final_cmd = raw_cmd
-                safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
+                    if mode == "manual" or exploring:
+                        # 2. Obstacle safety/reflex layer - final override
+                        # authority (this is what makes "hold/request forward
+                        # into a wall" impossible even while flying itself).
+                        # already_avoiding tells it the FSM is already turning
+                        # away from something, so it won't add a second,
+                        # possibly-disagreeing turn decision on top.
+                        already_avoiding = autonomous.state in _AVOIDING_STATES
+                        final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
+                    else:
+                        final_cmd = raw_cmd
+                        safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
 
-            # 3. Send the final (possibly overridden) command to the drone
-            if apply_command(drone, final_cmd):
-                prev_gray = None
-                looming.reset()
-                flying_cycle_count = 0
-                autonomous.reset()
-                safety.reset()
+                    # 3. Send the final (possibly overridden) command to the drone
+                    if apply_command(drone, final_cmd):
+                        prev_gray = None
+                        looming.reset()
+                        flying_cycle_count = 0
+                        autonomous.reset()
+                        safety.reset()
 
-            state = drone.get_state()
-            sim.update_debug_view(state["position"], state["yaw_degrees"])
-            sim.update_test_obstacles(state["position"], state["yaw_degrees"], decision_dt)
+                    state = drone.get_state()
+                    sim.update_debug_view(state["position"], state["yaw_degrees"])
+                    sim.update_test_obstacles(state["position"], state["yaw_degrees"], decision_dt)
 
-            cv2.imshow("Drone Camera", draw_debug_overlay(
-                frame, mode, autonomous, state, final_cmd, safety_info, flow))
-            cv2.waitKey(1)
+                    cv2.imshow("Drone Camera", draw_debug_overlay(
+                        frame, mode, autonomous, state, final_cmd, safety_info, flow))
+                    cv2.waitKey(1)
 
-            if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
-                action = action_label(mode, autonomous, safety_info)
-                print(
-                    f"[{mode:>10}][STATE={autonomous.state:>17}][ACTION={action:>22}] "
-                    f"fwd={final_cmd['forward_speed']:.2f}m/s turn={autonomous.turn_command:>9} "
-                    f"cell={autonomous.current_cell} least_visited={autonomous.least_visited_cell} "
-                    f"wall_time={autonomous.wall_time_seconds:.1f}s "
-                    f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
-                    f"collided={state['collided']} avoidance={safety_info['active']} stuck={safety_info['stuck']} "
-                    f"LEFT={flow['left']:.2f} CENTER={flow['center']:.2f} RIGHT={flow['right']:.2f}",
-                    flush=True,
-                )
+                    if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
+                        action = action_label(mode, autonomous, safety_info)
+                        # Same split as draw_debug_overlay: the turn/grid fields are
+                        # ReflexController-only, since FlyBrainController doesn't
+                        # track an exploration grid.
+                        grid_fields = ""
+                        if hasattr(autonomous, "current_cell"):
+                            grid_fields = (
+                                f"turn={autonomous.turn_command:>9} "
+                                f"cell={autonomous.current_cell} least_visited={autonomous.least_visited_cell} "
+                                f"wall_time={autonomous.wall_time_seconds:.1f}s "
+                            )
+                        print(
+                            f"[{mode:>10}][STATE={autonomous.state:>17}][ACTION={action:>22}] "
+                            f"fwd={final_cmd['forward_speed']:.2f}m/s {grid_fields}"
+                            f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
+                            f"collided={state['collided']} avoidance={safety_info['active']} stuck={safety_info['stuck']} "
+                            f"LEFT={flow['left']:.2f} CENTER={flow['center']:.2f} RIGHT={flow['right']:.2f}",
+                            flush=True,
+                        )
 
-            if state["position"][0] >= env["goal_x"]:
-                print("Course completed!", flush=True)
-                drone.land()
+                    if state["position"][0] >= env["goal_x"]:
+                        print("Course completed!", flush=True)
+                        drone.land()
 
-        step_count += 1
-        sim.tick()
+                step_count += 1
+                sim.tick()
+            except SimulatorError as exc:
+                # PyBullet's GUI mode intermittently fails a single command
+                # (seen as "GetBasePositionAndOrientation failed") while the
+                # very next one works - reproduced with the OpenCV windows
+                # open. Retry this step; only a lost connection or a run of
+                # failures means the simulator is really gone.
+                consecutive_sim_failures += 1
+                if not sim.is_connected() or consecutive_sim_failures >= MAX_CONSECUTIVE_SIM_FAILURES:
+                    raise
+                print(f"[sim] transient simulator error ({exc}) - retrying step", flush=True)
+                continue
+            consecutive_sim_failures = 0
+
+    except KeyboardInterrupt:
+        print("\ninterrupted - shutting down", flush=True)
+    except SimulatorError as exc:
+        # Every pybullet command fails once the GUI window is gone, so
+        # closing the window otherwise ends the run with a traceback
+        # pointing at whichever call happened to come next (e.g. the
+        # drone's own position read) instead of at the real cause.
+        print(f"\nsimulator stopped responding ({exc}) - shutting down", flush=True)
+    finally:
+        # FlyBrainController runs brian2 in a subprocess; without this it
+        # outlives main.py on every exit, clean or not. ReflexController
+        # has no close() to call.
+        if hasattr(autonomous, "close"):
+            autonomous.close()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

@@ -16,6 +16,13 @@ from interfaces.drone_interface import DroneInterface  # noqa: F401 (documents c
 from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
 from interfaces.simulator_interface import SimulatorInterface
 
+# pybullet raises this for any command the physics server refuses or never
+# answers - including every command after the GUI window is closed, which
+# surfaces as an unhelpful mid-loop traceback like "GetBasePositionAndOrientation
+# failed". Re-exported so main.py can shut down cleanly on it while still
+# not importing pybullet itself.
+SimulatorError = p.error
+
 # --- "Easy to watch" debug camera - follows the drone at a fixed angle/
 # distance rather than a tight close-up, so nearby obstacles and the
 # direction of travel stay visible. ---
@@ -120,6 +127,9 @@ class PyBulletSimulator(SimulatorInterface):
                 position, end, lineColorRGB=[1, 1, 0], lineWidth=3,
                 replaceItemUniqueId=self._heading_line_id,
             )
+
+    def is_connected(self):
+        return p.isConnected()
 
     @property
     def physics_dt(self):

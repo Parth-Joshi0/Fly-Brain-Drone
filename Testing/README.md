@@ -65,6 +65,17 @@ The harness doesn't read the keyboard, so it can't catch bugs in `main.py`'s key
 
 The summary at the end lists state counts and each escape trigger. Each trigger shows: when it fired, the distance to the test obstacle and to the nearest course obstacle, the expansion reading, and the dodge direction. The brain's inputs are random (Poisson spike trains), so results vary run to run. Run each scenario a few times before drawing conclusions.
 
+### `test_main_gui.py`: does the real `main.py` work?
+
+Runs the actual `main.py` (GUI, key handling, `NEURON_TEST_MODE`, the whole loop) and fakes the left-click that spawns a test box at chosen decision cycles. Then it prints, for each box, whether the brain escaped and which way, and whether the drone was hit. Use it after changing `main.py`: `test_escape_sim.py` re-implements the loop, so it has missed bugs that only exist in `main.py`.
+
+```bash
+python Testing/test_main_gui.py                       # boxes at cycles 200, 330, 460
+python Testing/test_main_gui.py 180,260,400,520,640   # custom click cycles
+```
+
+Takeoff plus the pre-explore hover take about 140 decision cycles. A box sent before then is never seen by the brain. Opens the PyBullet and camera windows. A line starting `[sim] transient simulator error` means PyBullet's GUI dropped one command and `main.py` retried it. That's expected occasionally.
+
 ### `calibrate_looming.py`: is the vision signal right?
 
 Flies scripted maneuvers (no brain, no SafetyLayer) and runs the real `LoomingDetector` over the recorded frames:

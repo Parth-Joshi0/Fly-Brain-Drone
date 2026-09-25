@@ -75,10 +75,12 @@ ESCAPE_BACK_SPEED = 2.0           # m/s - pitch and roll saturate independently,
                                   # dodge sideways and buys extra time (0.12m ->
                                   # 0.42m miss distance vs 1.0 in testing)
 ESCAPE_REFRACTORY_CYCLES = 30     # ~1s after a dodge before another can trigger
+ESCAPE_SIDE_PUSH_M = 0.4          # push sideways/back only until moved this far,
+ESCAPE_BACK_PUSH_M = 0.4          # then brake - momentum carries it ~1m total
 ESCAPE_SIDE_MIN_YAW = 0.3         # |DNp06 yaw| needed to trust it for dodge direction
 ESCAPE_SIDE_MIN_FLOW_DIFF = 0.2   # else: dodge toward the lower-flow side if it's this clear
-ESCAPE_DODGE_SIDE_M = 1.2         # roughly how far one dodge carries the drone
-ESCAPE_DODGE_BACK_M = 1.2         # (from Testing/drone_step_response.py), padded
+ESCAPE_DODGE_SIDE_M = 1.2         # roughly how far one dodge carries the drone,
+ESCAPE_DODGE_BACK_M = 1.2         # including the slide while braking, padded
 ESCAPE_BOUNDS_MARGIN = 0.3        # m inside the flight-area bounds a dodge must end
 
 # --- Boundary containment - same behavior as
@@ -199,6 +201,9 @@ class FlyBrainController:
         self._escape_dir = 1          # +1 = dodge left, -1 = dodge right
         self.escape_direction = "LEFT"
         self._refractory_timer = 0
+        self._escape_origin = (0.0, 0.0, 0.0)
+        self._escape_back_m = ESCAPE_DODGE_BACK_M
+        self._returning_to_bounds = False
         self._last_tie_dir = -1
         self._prev_tilt = None
         self._rotation_floor = 0.0
@@ -211,6 +216,9 @@ class FlyBrainController:
         self.state = "CRUISE"
         self._escape_timer = 0
         self._refractory_timer = 0
+        self._escape_origin = (0.0, 0.0, 0.0)
+        self._escape_back_m = ESCAPE_DODGE_BACK_M
+        self._returning_to_bounds = False
         self._prev_tilt = None
         self._rotation_floor = 0.0
         self._brain.request({"reset": True})
@@ -223,15 +231,15 @@ class FlyBrainController:
         position = state["position"] if state else (0.0, 0.0, 0.0)
 
         if self.bounds is not None:
-            if self.state == "BOUNDARY_RETURN":
+            if self._returning_to_bounds:
                 if self._well_inside_bounds(position):
-                    self.state = "CRUISE"
+                    self._returning_to_bounds = False
             elif self._outside_bounds(position):
-                self.state = "BOUNDARY_RETURN"
+                self._returning_to_bounds = True
 
-        if self.state == "BOUNDARY_RETURN":
-            return self._boundary_return_command(position, state)
-
+        # The brain runs even while returning to the flight area: dodges
+        # can end just outside it, and skipping the brain there left the
+        # drone blind to the next incoming object.
         # Something looming in the center threatens both eyes at once,
         # so it feeds both loom_left and loom_right, not just whichever
         # side literally reads higher.
@@ -250,14 +258,32 @@ class FlyBrainController:
             self._refractory_timer -= 1
         elif escape >= ESCAPE_STATE_THRESHOLD:
             self._escape_timer = ESCAPE_CYCLES
+            # Back off too unless that alone would leave the flight area
+            # (repeated dodges otherwise walk the drone out backwards).
+            self._escape_back_m = ESCAPE_DODGE_BACK_M
+            if state is not None and self.bounds is not None and \
+                    self._dodge_landing_margin(state, 0, back_m=ESCAPE_DODGE_BACK_M) < ESCAPE_BOUNDS_MARGIN:
+                self._escape_back_m = 0.0
             self._escape_dir = self._pick_escape_dir(yaw, flow, state)
+            self._escape_origin = (position[0], position[1],
+                                   math.radians(state["yaw_degrees"]) if state else 0.0)
 
         if self._escape_timer > 0:
             self.state = "ESCAPE"
             self.escape_direction = "LEFT" if self._escape_dir > 0 else "RIGHT"
-            forward_speed = -ESCAPE_BACK_SPEED
-            strafe_speed = ESCAPE_STRAFE_SPEED * self._escape_dir
+            # Push only until the drone has moved PUSH_M away, then let it
+            # brake for the rest of the program: it keeps sliding ~1m after
+            # a full-speed push, so pushing the whole time carried it into
+            # the perimeter walls.
+            side_moved, back_moved = self._escape_displacement(position)
+            strafe_speed = ESCAPE_STRAFE_SPEED * self._escape_dir if side_moved < ESCAPE_SIDE_PUSH_M else 0.0
+            backing = self._escape_back_m > 0 and back_moved < ESCAPE_BACK_PUSH_M
+            forward_speed = -ESCAPE_BACK_SPEED if backing else 0.0
             yaw_rate = 0.0
+        elif self._returning_to_bounds:
+            self.state = "BOUNDARY_RETURN"
+            cmd = self._boundary_return_command(position, state)
+            forward_speed, strafe_speed, yaw_rate = cmd["forward_speed"], 0.0, cmd["yaw_rate"]
         else:
             forward_speed = CRUISE_FORWARD_SPEED * forward * (1.0 - escape)
             strafe_speed = 0.0
@@ -313,14 +339,27 @@ class FlyBrainController:
         # the flight-area edge - that's where the perimeter walls are.
         if self.bounds is None or state is None:
             return preferred
-        margins = {d: self._dodge_landing_margin(state, d) for d in (preferred, -preferred)}
+        margins = {d: self._dodge_landing_margin(state, d, back_m=self._escape_back_m)
+                   for d in (preferred, -preferred)}
         if margins[preferred] < ESCAPE_BOUNDS_MARGIN and margins[-preferred] > margins[preferred]:
             return -preferred
         return preferred
 
-    def _dodge_landing_margin(self, state, direction):
+    def _escape_displacement(self, position):
+        """How far the drone has moved since the dodge started, as (toward
+        the dodge side, backward), both relative to its heading at the time."""
+        x0, y0, heading = self._escape_origin
+        dx, dy = position[0] - x0, position[1] - y0
+        left = -dx * math.sin(heading) + dy * math.cos(heading)
+        back = -(dx * math.cos(heading) + dy * math.sin(heading))
+        return left * self._escape_dir, back
+
+    def _dodge_landing_margin(self, state, direction, back_m):
+        """Distance inside the flight-area bounds where a dodge toward
+        `direction` (+1 left, -1 right, 0 none) that also backs off back_m
+        would end up; negative = outside."""
         heading = math.radians(state["yaw_degrees"])
-        back, side = -ESCAPE_DODGE_BACK_M, ESCAPE_DODGE_SIDE_M * direction
+        back, side = -back_m, ESCAPE_DODGE_SIDE_M * direction
         x = state["position"][0] + back * math.cos(heading) - side * math.sin(heading)
         y = state["position"][1] + back * math.sin(heading) + side * math.cos(heading)
         b = self.bounds

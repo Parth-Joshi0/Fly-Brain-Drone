@@ -68,6 +68,12 @@ class SimulatorInterface(ABC):
         loop (e.g. sleep to real time in sim; no-op / rate-limit on real
         hardware)."""
 
+    def is_connected(self):
+        """False once the simulator/hardware link is gone for good (e.g. the
+        sim window was closed) - lets main.py tell that apart from a
+        one-off failed command it can just retry."""
+        return True
+
     def update_test_obstacles(self, drone_position, drone_yaw_degrees, dt):
         """Debug helper: on request (e.g. a mouse click), spawns a block
         that flies in a straight line at the drone, to trigger the escape
