@@ -41,9 +41,7 @@ nothing else in this file, or in controllers/ or vision/, needs to change.
 
 import cv2
 
-from simulation.environment import build_environment
-from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
-from controllers.reflex_controller import ReflexController, EXPLORATION_GRID_SIZE
+from controllers.reflex_controller import ReflexController
 from controllers.manual_controller import ManualController
 from controllers.safety_layer import SafetyLayer
 from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
@@ -157,57 +155,6 @@ def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, f
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
                     0.42, color, 1, cv2.LINE_AA)
     return out
-
-
-def update_debug_camera(position):
-    """Keeps the PyBullet 3D viewport centered on the drone at a fixed
-    distance/angle - "easy to watch" without the user needing to manually
-    pan/zoom, and without zooming in so tight that nearby obstacles fall
-    out of view."""
-    p.resetDebugVisualizerCamera(
-        cameraDistance=DEBUG_CAMERA_DISTANCE,
-        cameraYaw=DEBUG_CAMERA_YAW,
-        cameraPitch=DEBUG_CAMERA_PITCH,
-        cameraTargetPosition=position,
-    )
-
-
-def draw_heading_line(position, yaw_degrees, line_id):
-    """A short line in the PyBullet 3D view showing the drone's current
-    forward direction. Reuses the same debug-item id every call
-    (replaceItemUniqueId) so it updates in place instead of accumulating
-    thousands of lines."""
-    yaw = math.radians(yaw_degrees)
-    end = [
-        position[0] + HEADING_LINE_LENGTH * math.cos(yaw),
-        position[1] + HEADING_LINE_LENGTH * math.sin(yaw),
-        position[2],
-    ]
-    if line_id is None:
-        return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3)
-    return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3,
-                               replaceItemUniqueId=line_id)
-
-
-def draw_arena_debug_lines(bounds, grid_size, z=0.05):
-    """One-time debug draw of the soft flight-area boundary rectangle plus
-    the exploration grid cells inside it, in PyBullet world space. Static
-    geometry (the boundary/grid never move), so unlike the heading line
-    this is just drawn once and left alone rather than redrawn per frame."""
-    min_x, max_x = bounds["min_x"], bounds["max_x"]
-    min_y, max_y = bounds["min_y"], bounds["max_y"]
-    corners = [
-        [min_x, min_y, z], [max_x, min_y, z],
-        [max_x, max_y, z], [min_x, max_y, z],
-    ]
-    for i in range(4):
-        p.addUserDebugLine(corners[i], corners[(i + 1) % 4], lineColorRGB=[0, 0.8, 1], lineWidth=2)
-
-    for i in range(1, grid_size):
-        x = min_x + (max_x - min_x) * i / grid_size
-        p.addUserDebugLine([x, min_y, z], [x, max_y, z], lineColorRGB=[0, 0.4, 0.6], lineWidth=1)
-        y = min_y + (max_y - min_y) * i / grid_size
-        p.addUserDebugLine([min_x, y, z], [max_x, y, z], lineColorRGB=[0, 0.4, 0.6], lineWidth=1)
 
 
 def apply_command(drone, cmd):
