@@ -20,7 +20,7 @@ def main():
     detector = BananaDetector()
 
     tello = Tello()
-    tello.connect(wait_for_state=False)
+    tello.connect()
     print("Connected! Battery:", tello.get_battery())
 
     tello.streamoff()

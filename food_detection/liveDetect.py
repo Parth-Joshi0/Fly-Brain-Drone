@@ -39,14 +39,14 @@ class Detection:
 class BananaDetector:
     def __init__(
         self,
-        checkpoint_path='checkpoints/best_banana_model.pth',
-        class_names_path='checkpoints/class_names.json',
+        checkpoint_path=os.path.join(CHECKPOINT_DIR, 'best_banana_model.pth'),
+        class_names_path=os.path.join(CHECKPOINT_DIR, 'class_names.json'),
         default_class_names=None,
         img_size=224,
         detector_conf_threshold=0.4,
         classifier_conf_threshold=0.0,
         padding_ratio=0.08,
-        yolo_weights='yolov8n.pt',
+        yolo_weights=os.path.join(os.path.dirname(__file__), 'yolov8n.pt'),
         device=None,
     ):
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
