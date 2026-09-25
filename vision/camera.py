@@ -52,6 +52,15 @@ class DroneCamera:
             lightColor=[1, 1, 1],
             lightDistance=3,
             shadow=0,
+            # In GUI mode pybullet defaults to ER_BULLET_HARDWARE_OPENGL,
+            # which renders this frame on the GUI's own OpenGL thread - the
+            # one place the 30Hz control loop reaches across threads every
+            # cycle, and the unreliable path on macOS. Ask for the software
+            # renderer explicitly: it runs in this thread, costs ~5ms at
+            # 320x240 (well inside the 33ms decision budget), and makes the
+            # GUI run and evaluation/run_trials.py's DIRECT run see exactly
+            # the same pixels instead of two different renderers.
+            renderer=p.ER_TINY_RENDERER,
         )
 
         frame = np.array(rgb, dtype=np.uint8).reshape(self.height, self.width, 4)

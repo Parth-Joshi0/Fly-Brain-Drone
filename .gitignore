@@ -6,3 +6,6 @@ Fly-Brain/results/example
 Fly-Brain/results
 README.roboflow.txt
 temp.py
+yolov8n.pt
+dataset
+flybrain_spikes.log
