@@ -25,17 +25,19 @@ Manual-only movement (only read while in MANUAL mode):
 
 Run:
     python main.py
+
+Everything PyBullet-specific (GUI window, test course, keyboard input,
+debug 3D view) lives behind interfaces/pybullet_simulator.py's
+PyBulletSimulator, the SimulatorInterface implementation constructed
+below - same pattern as PyBulletDrone/DroneInterface. Swapping to the
+real drone means writing one new SimulatorInterface (and DroneInterface)
+implementation and changing the two lines below that construct them;
+nothing else in this file, or in controllers/ or vision/, needs to change.
 """
 
-import math
-import time
-
 import cv2
-import pybullet as p
-import pybullet_data
 
-from simulation.environment import build_environment
-from interfaces.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
+from interfaces.pybullet_simulator import PyBulletSimulator
 from controllers.reflex_controller import ReflexController
 from controllers.manual_controller import ManualController
 from controllers.safety_layer import SafetyLayer
@@ -55,14 +57,6 @@ DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
 HOVER_BEFORE_EXPLORE_CYCLES = 45  # ~1.5s at 30Hz: "take off, hover briefly,
                                    # THEN begin exploring" (item 1)
 
-# --- "Easy to watch" debug camera - follows the drone at a fixed angle/
-# distance rather than a tight close-up, so nearby obstacles and the
-# direction of travel stay visible. ---
-DEBUG_CAMERA_DISTANCE = 7.0
-DEBUG_CAMERA_YAW = 50
-DEBUG_CAMERA_PITCH = -35
-HEADING_LINE_LENGTH = 1.5  # m - length of the drawn forward-direction line
-
 _ACTION_FOR_STATE = {
     "CRUISE": "FORWARD",
     "AVOID_LEFT": "TURN LEFT",
@@ -76,17 +70,15 @@ EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
              "pressed_direction": "-"}
 
 
-def emergency_keys(keys):
+def emergency_keys(input_state):
     """Space/L/R work in both manual and autonomous mode - these are the
     keys item 1 says to keep regardless of mode (emergency hover,
     emergency land, reset)."""
-    def down(code):
-        return code in keys and keys[code] & p.KEY_IS_DOWN
-
-    def pressed(code):
-        return code in keys and keys[code] & p.KEY_WAS_TRIGGERED
-
-    return {"hover": down(ord(' ')), "land": pressed(ord('l')), "reset": pressed(ord('r'))}
+    return {
+        "hover": input_state["hover"],
+        "land": input_state["land_pressed"],
+        "reset": input_state["reset_pressed"],
+    }
 
 
 def action_label(mode, nav_state, safety_info):
@@ -125,36 +117,6 @@ def draw_debug_overlay(frame, mode, nav_state, state, final_cmd, safety_info, fl
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
                     0.42, color, 1, cv2.LINE_AA)
     return out
-
-
-def update_debug_camera(position):
-    """Keeps the PyBullet 3D viewport centered on the drone at a fixed
-    distance/angle - "easy to watch" without the user needing to manually
-    pan/zoom, and without zooming in so tight that nearby obstacles fall
-    out of view."""
-    p.resetDebugVisualizerCamera(
-        cameraDistance=DEBUG_CAMERA_DISTANCE,
-        cameraYaw=DEBUG_CAMERA_YAW,
-        cameraPitch=DEBUG_CAMERA_PITCH,
-        cameraTargetPosition=position,
-    )
-
-
-def draw_heading_line(position, yaw_degrees, line_id):
-    """A short line in the PyBullet 3D view showing the drone's current
-    forward direction. Reuses the same debug-item id every call
-    (replaceItemUniqueId) so it updates in place instead of accumulating
-    thousands of lines."""
-    yaw = math.radians(yaw_degrees)
-    end = [
-        position[0] + HEADING_LINE_LENGTH * math.cos(yaw),
-        position[1] + HEADING_LINE_LENGTH * math.sin(yaw),
-        position[2],
-    ]
-    if line_id is None:
-        return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3)
-    return p.addUserDebugLine(position, end, lineColorRGB=[1, 1, 0], lineWidth=3,
-                               replaceItemUniqueId=line_id)
 
 
 def apply_command(drone, cmd):
@@ -205,20 +167,9 @@ def apply_command(drone, cmd):
 
 
 def main():
-    p.connect(p.GUI)
-    time.sleep(0.5)  # let the renderer finish initializing before loading meshes
-    p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
-    p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0)
-    p.setAdditionalSearchPath(pybullet_data.getDataPath())
-    p.resetSimulation()
-    p.setGravity(0, 0, -GRAVITY)
-
-    env = build_environment()
-    drone = PyBulletDrone(
-        start_pos=(0, 0, 0.05),
-        ground_id=env["plane"],
-        obstacle_ids=set(env["obstacles"]),
-    )
+    sim = PyBulletSimulator()
+    env = sim.connect()
+    drone = sim.create_drone(start_pos=(0, 0, 0.05))
     manual = ManualController()
     if USE_FLYBRAIN:
         from controllers.flybrain_controller import FlyBrainController
@@ -226,7 +177,7 @@ def main():
     else:
         autonomous = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
-    flow_viz = FlowVisualizer(drone.camera.width, drone.camera.height)
+    flow_viz = None  # lazily sized from the first camera frame (see below)
 
     mode = "autonomous"  # fully autonomous by default (item 1) - press M for manual
     drone.takeoff()
@@ -236,7 +187,6 @@ def main():
     safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
     flying_cycle_count = 0  # counts decision cycles spent in "flying" state,
                              # for the "hover briefly before exploring" grace period
-    heading_line_id = None
 
     step_count = 0
     while True:
@@ -245,17 +195,20 @@ def main():
         if step_count % DECISION_INTERVAL_STEPS == 0:
             frame = drone.get_camera_frame()
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if flow_viz is None:
+                height, width = gray.shape[:2]
+                flow_viz = FlowVisualizer(width, height)
 
             if prev_gray is not None:
                 raw_flow = compute_flow(prev_gray, gray)
                 yaw_rate = drone.get_state()["yaw_rate"]
-                derotated = derotate_flow(raw_flow, yaw_rate, DECISION_INTERVAL_STEPS * PHYSICS_DT)
+                derotated = derotate_flow(raw_flow, yaw_rate, DECISION_INTERVAL_STEPS * sim.physics_dt)
                 flow = grid_flow_strengths(derotated)
                 cv2.imshow("Optical Flow", flow_viz.render(derotated))
             prev_gray = gray
 
-            keys = p.getKeyboardEvents()
-            if ord('m') in keys and keys[ord('m')] & p.KEY_WAS_TRIGGERED:
+            input_state = sim.poll_input()
+            if input_state["mode_toggle_pressed"]:
                 mode = "manual" if mode == "autonomous" else "autonomous"
                 print(f"--- switched to {mode.upper()} mode ---", flush=True)
 
@@ -275,13 +228,13 @@ def main():
             exploring = mode == "autonomous" and flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
 
             if mode == "manual":
-                raw_cmd = manual.decide(keys)
+                raw_cmd = manual.decide(input_state)
             elif exploring:
                 raw_cmd = autonomous.decide(flow, state_now)
-                raw_cmd.update(emergency_keys(keys))  # Space/L/R still work
+                raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
             else:
                 raw_cmd = dict(EMPTY_CMD)
-                raw_cmd.update(emergency_keys(keys))
+                raw_cmd.update(emergency_keys(input_state))
 
             if mode == "manual" or exploring:
                 # 2. Obstacle safety/reflex layer - final override
@@ -304,8 +257,7 @@ def main():
                 safety.reset()
 
             state = drone.get_state()
-            update_debug_camera(state["position"])
-            heading_line_id = draw_heading_line(state["position"], state["yaw_degrees"], heading_line_id)
+            sim.update_debug_view(state["position"], state["yaw_degrees"])
 
             cv2.imshow("Drone Camera", draw_debug_overlay(
                 frame, mode, autonomous.state, state, final_cmd, safety_info, flow))
@@ -328,7 +280,7 @@ def main():
                 drone.land()
 
         step_count += 1
-        time.sleep(PHYSICS_DT)
+        sim.tick()
 
 
 if __name__ == "__main__":
