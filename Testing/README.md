@@ -1,6 +1,6 @@
 # Testing
 
-Scripts for checking that the FlyBrain looming circuit fires, that the drone actually escapes, and that the vision signal feeding the brain is calibrated. All of them run headless, with no PyBullet GUI window and no keyboard.
+Scripts for checking that the FlyBrain looming circuit fires, that the drone actually escapes, and that the vision signal feeding the brain is calibrated. They run headless, with no PyBullet GUI window and no keyboard — the exception is `tello_neuron_test.py`, which runs against the real Tello and opens a window so you can mark swats as you make them.
 
 Run everything from the repo root.
 
@@ -12,6 +12,7 @@ Two Python environments are involved:
 |---|---|---|
 | **brian2** (conda env) | `brian2`, `pandas`, `pyarrow` | `test_brain_circuit.py`, and the brain subprocess that the other scripts start |
 | **sim** (e.g. conda `base`) | `pybullet`, `opencv-python`, `numpy` | `test_escape_sim.py`, `calibrate_looming.py`, `drone_step_response.py` |
+| **tello** | `djitellopy`, `opencv-python`, `numpy` (no pybullet) | `tello_neuron_test.py` |
 
 You don't have to activate the brian2 env for the sim scripts. `controllers/flybrain_controller.py` finds it on its own (common conda locations or `conda run -n brian2`). If it can't, point `FLYBRAIN_PYTHON` at that env's python:
 
@@ -101,6 +102,48 @@ python Testing/drone_step_response.py strafe TILT_KP=0.2 TILT_KD=0.04   # try ot
 ```
 
 `CONST=value` overrides constants in `interfaces/pybullet_drone.py` for that run only.
+
+### `tello_neuron_test.py`: do the neurons fire on the REAL drone?
+
+The only script here that talks to real hardware, and the first real-drone test to run. It puts the Tello on a desk, props off, and runs the perception half of the escape path off the live video feed:
+
+```
+Tello video -> LoomingDetector -> FlyBrainController -> log
+```
+
+**It never flies the drone.** No `takeoff()`, no `land()`, no `send_rc_control()` — it only reads the video stream and the attitude telemetry, so there is nothing to crash. Leave the propellers off.
+
+A stationary drone is the right first test because `FlyBrainController._loom_floor` subtracts the expansion the drone's own motion would cause, and on a desk that term is zero. The floor collapses to `LOOM_EXPANSION_FLOOR`, so any expansion the circuit sees is genuinely your hand. That isolates the one unknown: whether Farneback can recover clean expansion from the Tello's H.264 stream at all. Every constant in the pipeline was calibrated against PyBullet's clean renders, and expansion is a spatial *derivative* of flow — far more sensitive to compression artifacts, rolling shutter and auto-exposure hunting than plain flow magnitude.
+
+```bash
+python -m pip install djitellopy    # note: python -m pip, not bare pip
+python Testing/tello_neuron_test.py
+```
+
+Use `python -m pip`, not bare `pip` — on this machine they are different interpreters, and installing into the wrong one leaves the script reporting `djitellopy is not installed` while `pip` insists it already is.
+
+Options: `--seconds N` (live phase, default 60), `--baseline N` (quiet phase first, default 10), `--fov DEG`, `--no-video`, `--log PATH`.
+
+**Watch which interpreter you launch from.** `_find_python_with_brian2()` returns the *current* interpreter if it can import brian2, before it ever looks for the conda env. So launching from a python that happens to have its own brian2 silently hosts the brain there instead — and the two installs are not equally fast. Measured here: 47 ms per brain step under a stray brian2 vs 20 ms under the conda env, which is the difference between missing and meeting the 33 ms budget for a 30 Hz loop. Pin it if in doubt:
+
+```bash
+FLYBRAIN_PYTHON=/path/to/envs/brian2/bin/python python Testing/tello_neuron_test.py
+```
+
+The log records `brain_interpreter` and `FLYBRAIN_PYTHON` in its header and prints a warning in the summary if the mean brain step exceeds 33 ms, so a run made under the wrong one is self-evident afterwards rather than a mystery.
+
+It runs in three phases: a discarded warm-up while the exposure settles, a **baseline** phase of nothing happening (this measures the noise floor), then the **live** phase. During live, press SPACE the instant you swat and Q to stop. The SPACE markers are the most valuable thing in the log — they give ground truth to line the neuron response up against, so a count of DNp01 firings can be scored as hits vs false positives instead of guessed at.
+
+Everything lands in one self-contained plain-text log (`Testing/tello_neuron_test.log`): a metadata header with every constant in effect, tab-separated per-cycle rows, the swat markers, and a summary. It can be handed over offline, which matters because reaching the Tello means joining its wifi and losing internet.
+
+**Two things to do beforehand:**
+
+- **Do one dry run with internet** (no Tello needed — it will just fail to connect). brian2 compiles its generated C++ on first use, and you don't want to discover that while on the Tello's wifi.
+- Note `--fov` defaults to **55.6**, the *vertical* FOV. The Tello's published 82.6° is a *diagonal* spec, and `LoomingDetector`'s `fov` argument is vertical (`f = (height/2)/tan(fov/2)`, same convention as the sim's `DroneCamera(fov=75)`). Passing 82.6 would set the focal length ~35% short and mis-scale the rotation-removal homography.
+
+**Expected:** near-zero expansion during the baseline phase, and DNp01 spiking with `escape` crossing 0.6 on a swat. If baseline expansion is already up near `LOOM_EXPANSION_FLOOR` (0.8), the Tello's stream is noisier than the sim's renders and the floor needs raising before any flight test.
+
+The summary also reports a latency breakdown (`flow_ms`, `brain_ms`, `cycle_ms`, `effective_fps`). Watch these: the escape is only useful if the loop is fast enough to react before a hand arrives, and Tello video latency stacks on top of the compute time measured here.
 
 ## Notes
 

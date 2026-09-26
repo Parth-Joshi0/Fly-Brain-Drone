@@ -65,7 +65,7 @@ USE_FLYBRAIN = True
 # circuit reacting correctly to something looming" from the flight
 # dynamics - useful together with the click-to-spawn test obstacle, since
 # the drone no longer drifts/turns out of the obstacle's straight-line path.
-NEURON_TEST_MODE = True
+NEURON_TEST_MODE = False
 
 DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
                                # ~20-30 FPS range requested for the camera

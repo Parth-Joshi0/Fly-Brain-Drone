@@ -1,3 +1,4 @@
 pybullet
 numpy
 opencv-python
+djitellopy   # real-drone tests only (tello_*.py, Testing/tello_neuron_test.py)
