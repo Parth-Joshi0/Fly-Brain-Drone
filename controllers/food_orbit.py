@@ -1,133 +1,493 @@
 """
-Food-orbit behaviour - when the drone spots food it likes, it circles
-around it while keeping the camera pointed at it (like a fly circling
-fruit it is interested in).
+Food orbit behaviour for the DJI Tello.
 
-The Tello camera faces forward, so "circling" means ORBITING the food:
-strafe sideways at a steady speed while yawing to keep the food centred
-in frame, and moving forward/back to keep its on-screen size (i.e. the
-orbit radius) roughly constant.
+For testing, ANY detected banana is considered a valid target.
 
-This class never talks to the drone - it turns a list of detections
-(food_detection.liveDetect.Detection) into an rc command, so the logic
-can be tested without flying:
-
-    behaviour = FoodOrbitBehaviour()
-    cmd = behaviour.update(detections, frame_width, frame_height)
-    tello.send_rc_control(cmd.lr, cmd.fb, cmd.ud, cmd.yaw)
-
-States:
-
-    SEARCH  hover, slowly yawing to look around
-    ORBIT   liked food confirmed - circle it
-    REST    orbit finished (or food lost) - hover still for a moment so
-            it doesn't immediately re-trigger on the same food
+Behaviour:
+SEARCH
+    -> find banana
+APPROACH
+    -> move toward it while keeping it centered
+HOVER
+    -> hold near it briefly
+CIRCLE
+    -> strafe sideways while turning toward it
 """
 
 import time
-from collections import namedtuple
-
-RcCommand = namedtuple('RcCommand', ['lr', 'fb', 'ud', 'yaw'])
-HOVER = RcCommand(0, 0, 0, 0)
-
-SEARCH = 'SEARCH'
-ORBIT = 'ORBIT'
-REST = 'REST'
-
-# --- Tune freely ---------------------------------------------------------
-LIKED_LABELS = {'overripe'}
-MIN_CLASSIFIER_CONF = 0.6   # ignore low-confidence ripeness predictions
-CONFIRM_FRAMES = 3          # consecutive frames of liked food before orbiting
-LOST_TIMEOUT_S = 1.5        # food out of sight this long -> give up orbit
-ORBIT_DURATION_S = 20.0     # how long to circle before resting
-REST_DURATION_S = 5.0       # hover still after an orbit
-
-# rc values are Tello units, -100..100
-SEARCH_YAW = 15             # slow look-around rotation while searching
-ORBIT_LR = 20               # sideways speed while orbiting (+ = right)
-YAW_FEEDFORWARD = -18       # yaw needed to counter the strafe (opposite sign to ORBIT_LR)
-YAW_GAIN = 60               # yaw per unit of horizontal centring error
-TARGET_HEIGHT_FRAC = 0.30   # desired food box height / frame height (sets orbit radius)
-FB_GAIN = 80                # forward/back per unit of size error
-MAX_RC = 35                 # hard cap on any rc value
+from dataclasses import dataclass
 
 
-def _clip(value, limit=MAX_RC):
-    return int(max(-limit, min(limit, value)))
+# ============================================================
+# SETTINGS
+# ============================================================
 
+# For now, ALL banana ripeness classes are accepted.
+TARGET_LABELS = {
+    "freshripe",
+    "freshunripe",
+    "overripe",
+    "ripe",
+    "rotten",
+    "unripe",
+}
+
+# Ignore extremely uncertain YOLO detections
+MIN_DETECTION_CONFIDENCE = 0.20
+
+# Keep this low for testing so ripeness mistakes don't matter much
+MIN_CLASSIFIER_CONFIDENCE = 0.10
+
+# How large the banana should appear before the drone considers
+# itself close enough.
+#
+# Increase this if the drone gets TOO close.
+# Decrease this if it stops TOO far away.
+TARGET_BOX_RATIO = 0.12
+
+# How long to hover before starting the circle
+HOVER_TIME = 2.0
+
+# If YOLO loses the banana briefly, don't immediately start searching
+TARGET_LOST_GRACE_TIME = 0.7
+
+
+# ============================================================
+# MOVEMENT SPEEDS
+# ============================================================
+
+# Slow rotation while looking for a banana
+SEARCH_YAW_SPEED = 10
+
+# Maximum forward speed while approaching
+MAX_APPROACH_SPEED = 15
+
+# Sideways speed while circling
+#
+# Positive = circle one direction
+# Negative = circle the opposite direction
+CIRCLE_SPEED = 10
+
+# Maximum forward/back correction while orbiting
+MAX_DISTANCE_CORRECTION = 10
+
+
+# ============================================================
+# CONTROL SETTINGS
+# ============================================================
+
+# How strongly the drone turns toward the banana
+YAW_GAIN = 0.08
+
+# Controls forward/back correction based on banana size
+DISTANCE_GAIN = 300.0
+
+# Maximum yaw speed
+MAX_YAW = 20
+
+# Ignore tiny left/right errors so it doesn't constantly shake
+CENTER_DEADZONE = 35
+
+
+# ============================================================
+# RC COMMAND
+# ============================================================
+
+@dataclass
+class RCCommand:
+    lr: int = 0
+    fb: int = 0
+    ud: int = 0
+    yaw: int = 0
+
+
+def clamp(value, minimum, maximum):
+    return max(
+        minimum,
+        min(maximum, value)
+    )
+
+
+# ============================================================
+# FOOD ORBIT BEHAVIOUR
+# ============================================================
 
 class FoodOrbitBehaviour:
-    def __init__(self, liked_labels=LIKED_LABELS, clock=time.monotonic):
-        self.liked_labels = set(liked_labels)
-        self.clock = clock
-        self.state = SEARCH
-        self._confirm_count = 0
-        self._state_started = self.clock()
-        self._last_seen = None
-        self._target_center = None
 
-    def _set_state(self, state):
-        self.state = state
-        self._state_started = self.clock()
-        self._confirm_count = 0
-        if state != ORBIT:
-            self._target_center = None
+    def __init__(self):
 
-    def _liked(self, detections):
-        return [d for d in detections
-                if d.label in self.liked_labels and d.cls_conf >= MIN_CLASSIFIER_CONF]
+        self.state = "SEARCH"
 
-    def _pick_target(self, liked):
-        """Stick with the food we're already circling; otherwise take the most confident."""
-        if self._target_center is not None:
-            tx, ty = self._target_center
-            return min(liked, key=lambda d: ((d.box[0] + d.box[2]) / 2 - tx) ** 2
-                                            + ((d.box[1] + d.box[3]) / 2 - ty) ** 2)
-        return max(liked, key=lambda d: d.det_conf * d.cls_conf)
+        self.hover_start_time = None
 
-    def update(self, detections, frame_width, frame_height):
-        """Advance the state machine one frame and return the RcCommand to send."""
-        now = self.clock()
-        liked = self._liked(detections)
+        self.last_target_time = 0
 
-        if self.state == REST:
-            if now - self._state_started >= REST_DURATION_S:
-                self._set_state(SEARCH)
-            return HOVER
+        self.last_target_label = None
 
-        if self.state == SEARCH:
-            if liked:
-                self._confirm_count += 1
-                if self._confirm_count >= CONFIRM_FRAMES:
-                    self._set_state(ORBIT)
-                    self._last_seen = now
-                    return self._orbit_command(self._pick_target(liked), frame_width, frame_height)
-                return HOVER  # hold still while confirming so the food stays in view
-            self._confirm_count = 0
-            return RcCommand(0, 0, 0, SEARCH_YAW)
+        self.last_box_ratio = 0.0
 
-        # ORBIT
-        if now - self._state_started >= ORBIT_DURATION_S:
-            self._set_state(REST)
-            return HOVER
-        if not liked:
-            if now - self._last_seen >= LOST_TIMEOUT_S:
-                self._set_state(REST)
-            return HOVER  # pause the orbit and wait for the food to reappear
-        self._last_seen = now
-        return self._orbit_command(self._pick_target(liked), frame_width, frame_height)
 
-    def _orbit_command(self, target, frame_width, frame_height):
+    # ========================================================
+    # CHOOSE BANANA
+    # ========================================================
+
+    def _choose_target(self, detections):
+
+        valid_targets = []
+
+        for detection in detections:
+
+            label = detection.label.lower()
+
+            # Accept ANY known banana ripeness class
+            if label not in TARGET_LABELS:
+                continue
+
+            # Make sure YOLO is reasonably confident
+            if detection.det_conf < MIN_DETECTION_CONFIDENCE:
+                continue
+
+            # Keep classifier threshold low for testing
+            if detection.cls_conf < MIN_CLASSIFIER_CONFIDENCE:
+                continue
+
+            valid_targets.append(
+                detection
+            )
+
+        if not valid_targets:
+            return None
+
+        # Choose the strongest/largest banana
+        def score(d):
+
+            x1, y1, x2, y2 = d.box
+
+            area = max(
+                1,
+                (x2 - x1) * (y2 - y1)
+            )
+
+            return (
+                d.det_conf
+                * max(d.cls_conf, 0.1)
+                * area
+            )
+
+        return max(
+            valid_targets,
+            key=score
+        )
+
+
+    # ========================================================
+    # TURN TOWARD BANANA
+    # ========================================================
+
+    def _target_yaw(
+        self,
+        target,
+        frame_width
+    ):
+
+        x1, _, x2, _ = target.box
+
+        banana_x = (
+            x1 + x2
+        ) / 2.0
+
+        camera_center_x = (
+            frame_width / 2.0
+        )
+
+        error = (
+            banana_x
+            - camera_center_x
+        )
+
+        # Don't react to tiny errors
+        if abs(error) < CENTER_DEADZONE:
+            return 0
+
+        yaw = int(
+            error * YAW_GAIN
+        )
+
+        return int(
+            clamp(
+                yaw,
+                -MAX_YAW,
+                MAX_YAW
+            )
+        )
+
+
+    # ========================================================
+    # BANANA SIZE
+    # ========================================================
+
+    def _box_ratio(
+        self,
+        target,
+        frame_width,
+        frame_height
+    ):
+
         x1, y1, x2, y2 = target.box
-        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-        self._target_center = (cx, cy)
 
-        # -1 (far left) .. +1 (far right); positive yaw turns right
-        x_err = (cx - frame_width / 2) / (frame_width / 2)
-        yaw = YAW_FEEDFORWARD + YAW_GAIN * x_err
+        banana_area = max(
+            1,
+            (x2 - x1)
+            * (y2 - y1)
+        )
 
-        # box too small -> food too far -> move forward
-        size_err = TARGET_HEIGHT_FRAC - (y2 - y1) / frame_height
-        fb = FB_GAIN * size_err
+        frame_area = (
+            frame_width
+            * frame_height
+        )
 
-        return RcCommand(_clip(ORBIT_LR), _clip(fb), 0, _clip(yaw))
+        return (
+            banana_area
+            / frame_area
+        )
+
+
+    # ========================================================
+    # DISTANCE CONTROL
+    # ========================================================
+
+    def _distance_control(
+        self,
+        box_ratio
+    ):
+
+        # Banana too small:
+        # move forward
+        #
+        # Banana too large:
+        # move backward
+
+        error = (
+            TARGET_BOX_RATIO
+            - box_ratio
+        )
+
+        fb = int(
+            error
+            * DISTANCE_GAIN
+        )
+
+        return int(
+            clamp(
+                fb,
+                -MAX_DISTANCE_CORRECTION,
+                MAX_DISTANCE_CORRECTION
+            )
+        )
+
+
+    # ========================================================
+    # UPDATE BEHAVIOUR
+    # ========================================================
+
+    def update(
+        self,
+        detections,
+        frame_width,
+        frame_height
+    ):
+
+        now = time.time()
+
+        target = self._choose_target(
+            detections
+        )
+
+        # ====================================================
+        # NO BANANA
+        # ====================================================
+
+        if target is None:
+
+            time_missing = (
+                now
+                - self.last_target_time
+            )
+
+            # If banana disappeared for just a moment,
+            # don't immediately rotate away.
+            if (
+                self.last_target_time > 0
+                and
+                time_missing
+                < TARGET_LOST_GRACE_TIME
+            ):
+
+                return RCCommand(
+                    lr=0,
+                    fb=0,
+                    ud=0,
+                    yaw=0
+                )
+
+            self.state = "SEARCH"
+
+            self.hover_start_time = None
+
+            return RCCommand(
+                lr=0,
+                fb=0,
+                ud=0,
+                yaw=SEARCH_YAW_SPEED
+            )
+
+
+        # ====================================================
+        # BANANA FOUND
+        # ====================================================
+
+        self.last_target_time = now
+
+        self.last_target_label = (
+            target.label
+        )
+
+        box_ratio = self._box_ratio(
+            target,
+            frame_width,
+            frame_height
+        )
+
+        self.last_box_ratio = (
+            box_ratio
+        )
+
+        yaw = self._target_yaw(
+            target,
+            frame_width
+        )
+
+
+        # ====================================================
+        # SEARCH -> APPROACH
+        # ====================================================
+
+        if self.state == "SEARCH":
+
+            self.state = "APPROACH"
+
+
+        # ====================================================
+        # APPROACH BANANA
+        # ====================================================
+
+        if self.state == "APPROACH":
+
+            # Banana is still too small/far away
+            if (
+                box_ratio
+                < TARGET_BOX_RATIO
+            ):
+
+                size_error = (
+                    TARGET_BOX_RATIO
+                    - box_ratio
+                )
+
+                forward_speed = int(
+                    size_error
+                    * DISTANCE_GAIN
+                )
+
+                forward_speed = int(
+                    clamp(
+                        forward_speed,
+                        5,
+                        MAX_APPROACH_SPEED
+                    )
+                )
+
+                return RCCommand(
+                    lr=0,
+                    fb=forward_speed,
+                    ud=0,
+                    yaw=yaw
+                )
+
+            # Close enough
+            self.state = "HOVER"
+
+            self.hover_start_time = now
+
+
+        # ====================================================
+        # HOVER
+        # ====================================================
+
+        if self.state == "HOVER":
+
+            distance_correction = (
+                self._distance_control(
+                    box_ratio
+                )
+            )
+
+            if (
+                self.hover_start_time
+                is None
+            ):
+
+                self.hover_start_time = now
+
+            # After hovering for a little while,
+            # begin circling
+            if (
+                now
+                - self.hover_start_time
+                >= HOVER_TIME
+            ):
+
+                self.state = "CIRCLE"
+
+            return RCCommand(
+                lr=0,
+                fb=distance_correction,
+                ud=0,
+                yaw=yaw
+            )
+
+
+        # ====================================================
+        # CIRCLE / ORBIT
+        # ====================================================
+
+        if self.state == "CIRCLE":
+
+            distance_correction = (
+                self._distance_control(
+                    box_ratio
+                )
+            )
+
+            # Move sideways while turning toward banana.
+            # This creates the orbit.
+            return RCCommand(
+                lr=CIRCLE_SPEED,
+                fb=distance_correction,
+                ud=0,
+                yaw=yaw
+            )
+
+
+        # ====================================================
+        # FALLBACK
+        # ====================================================
+
+        self.state = "SEARCH"
+
+        return RCCommand(
+            lr=0,
+            fb=0,
+            ud=0,
+            yaw=0
+        )
