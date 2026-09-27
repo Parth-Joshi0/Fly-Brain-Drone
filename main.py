@@ -8,7 +8,7 @@ Starts in AUTONOMOUS mode: takes off, hovers briefly, then explores on
 its own - no keyboard input needed. Every command (autonomous or manual)
 passes through the SafetyLayer before reaching the drone, so it can
 override even a continuous "go forward" request if something's too
-close. Opens a PyBullet GUI window plus two debug windows (camera feed
+close. Opens a PyBullet GUI window plus two debug windows (camera feed87
 with a telemetry overlay, and a color-coded optical-flow visualization).
 
 Keys (work in BOTH modes):
@@ -65,7 +65,7 @@ USE_FLYBRAIN = True
 # circuit reacting correctly to something looming" from the flight
 # dynamics - useful together with the click-to-spawn test obstacle, since
 # the drone no longer drifts/turns out of the obstacle's straight-line path.
-NEURON_TEST_MODE = False
+NEURON_TEST_MODE = True
 
 DECISION_INTERVAL_STEPS = 8   # 240Hz physics / 8 = 30Hz decision loop, in the
                                # ~20-30 FPS range requested for the camera

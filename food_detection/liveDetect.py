@@ -43,7 +43,7 @@ class BananaDetector:
         class_names_path=os.path.join(CHECKPOINT_DIR, 'class_names.json'),
         default_class_names=None,
         img_size=224,
-        detector_conf_threshold=0.4,
+        detector_conf_threshold=0.15,
         classifier_conf_threshold=0.0,
         padding_ratio=0.08,
         yolo_weights=os.path.join(os.path.dirname(__file__), 'yolov8n.pt'),
