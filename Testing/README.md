@@ -1,6 +1,6 @@
 # Testing
 
-Scripts for checking that the FlyBrain looming circuit fires, that the drone actually escapes, and that the vision signal feeding the brain is calibrated. They run headless, with no PyBullet GUI window and no keyboard — the exception is `tello_neuron_test.py`, which runs against the real Tello and opens a window so you can mark swats as you make them.
+Scripts for checking that the FlyBrain looming circuit fires, that the drone actually escapes, and that the vision signal feeding the brain is calibrated. They run headless, with no PyBullet GUI window and no keyboard — the exception is `tello_neuron_test.py` and `tello_escape_flight_test.py`, which run against the real Tello and open a window so you can mark swats / abort a flight.
 
 Run everything from the repo root.
 
@@ -12,7 +12,7 @@ Two Python environments are involved:
 |---|---|---|
 | **brian2** (conda env) | `brian2`, `pandas`, `pyarrow` | `test_brain_circuit.py`, and the brain subprocess that the other scripts start |
 | **sim** (e.g. conda `base`) | `pybullet`, `opencv-python`, `numpy` | `test_escape_sim.py`, `calibrate_looming.py`, `drone_step_response.py` |
-| **tello** | `djitellopy`, `opencv-python`, `numpy` (no pybullet) | `tello_neuron_test.py` |
+| **tello** | `djitellopy`, `opencv-python`, `numpy` (no pybullet) | `tello_neuron_test.py`, `tello_escape_flight_test.py` |
 
 You don't have to activate the brian2 env for the sim scripts. `controllers/flybrain_controller.py` finds it on its own (common conda locations or `conda run -n brian2`). If it can't, point `FLYBRAIN_PYTHON` at that env's python:
 
@@ -144,6 +144,19 @@ Everything lands in one self-contained plain-text log (`Testing/tello_neuron_tes
 **Expected:** near-zero expansion during the baseline phase, and DNp01 spiking with `escape` crossing 0.6 on a swat. If baseline expansion is already up near `LOOM_EXPANSION_FLOOR` (0.8), the Tello's stream is noisier than the sim's renders and the floor needs raising before any flight test.
 
 The summary also reports a latency breakdown (`flow_ms`, `brain_ms`, `cycle_ms`, `effective_fps`). Watch these: the escape is only useful if the loop is fast enough to react before a hand arrives, and Tello video latency stacks on top of the compute time measured here.
+
+### `tello_escape_flight_test.py`: does it actually dodge, for real?
+
+The flight step up from `tello_neuron_test.py` — same perception pipeline, but now via `interfaces/tello_drone.py` (a real `DroneInterface` implementation) it actually takes off, hovers, and lets the brain's ESCAPE dodge command through to the motors. Default behavior otherwise is a plain hover (same as `main.py`'s `NEURON_TEST_MODE = True` and `test_escape_sim.py`'s `hover` scenario) — the brain runs every cycle, but only its ESCAPE output is ever applied.
+
+```bash
+python Testing/tello_escape_flight_test.py            # 60s hard auto-land
+python Testing/tello_escape_flight_test.py --seconds 30
+```
+
+Two things this is the first real test of, and that are still unverified assumptions rather than measured constants (see the script's docstring and `interfaces/tello_drone.py`): the RC speed/yaw-rate scale (`RC_SPEED_SCALE`, `_rate_to_rc`), and the escape dodge commanding full-speed RC on two axes at once. Fly it once with no one near it and confirm the `l`/`q` abort keys land it promptly before trusting a dodge near a hand.
+
+Keys (video window focused): `l` lands immediately; `q` or SPACE forces a hover, then lands ~1s later.
 
 ## Notes
 
