@@ -36,7 +36,7 @@ PyBulletSimulator, the SimulatorInterface implementation constructed
 below - same pattern as PyBulletDrone/DroneInterface. Swapping to the
 real drone means writing one new SimulatorInterface (and DroneInterface)
 implementation and changing the two lines below that construct them;
-nothing else in this file, or in neural_pathways/ or reflex_controller.py,
+nothing else in this file, or in NeuralPathways/ or reflex_controller.py,
 needs to change.
 """
 
@@ -46,10 +46,10 @@ from Simulator.pybullet_simulator import PyBulletSimulator, SimulatorError
 from reflex_controller import ReflexController
 from Drone.manual_controller import ManualController
 from safety_layer import SafetyLayer
-from neural_pathways.escape_neuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
+from NeuralPathways.EscapeNeuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
 
 # The hand-written CRUISE/AVOID_LEFT/AVOID_RIGHT state machine (default),
-# or the real Fly-Brain connectome circuit (neural_pathways/
+# or the real Fly-Brain connectome circuit (NeuralPathways/
 # flybrain_controller.py -> fly_brain_controller.py's LC4/LPLC2 ->
 # DNp01/03/06 looming subnetwork) - same decide(flow, state) contract,
 # swap one line to try it. Needs a Python env with brian2/pandas/pyarrow
@@ -213,7 +213,7 @@ def main():
     drone = sim.create_drone(start_pos=(0, 0, 0.05))
     manual = ManualController()
     if USE_FLYBRAIN:
-        from neural_pathways.flybrain_controller import FlyBrainController
+        from NeuralPathways.flybrain_controller import FlyBrainController
         autonomous = FlyBrainController(bounds=env["bounds"])
     else:
         autonomous = ReflexController(bounds=env["bounds"])

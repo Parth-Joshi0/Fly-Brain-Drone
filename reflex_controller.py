@@ -62,7 +62,7 @@ from boundary_math import (
 # generates real optical flow (de-rotation only cancels the *mean* shift;
 # a wide-FOV camera's rotational flow genuinely varies across the frame,
 # so meaningful residual flow remains even mid-turn - see the note in
-# neural_pathways/escape_neuron/optical_flow.derotate_flow). At AVOID_TURN_RATE below, that
+# NeuralPathways/EscapeNeuron/optical_flow.derotate_flow). At AVOID_TURN_RATE below, that
 # residual floor measured ~0.6 with noise spikes higher, which is why
 # AVOID_CLEAR_THRESHOLD sits above it - if it didn't, the AVOID state
 # could never see "clear" and would never be able to exit, since its own

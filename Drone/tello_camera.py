@@ -27,7 +27,7 @@ import cv2
 from djitellopy import Tello
 
 from BananaModel.liveDetect import BananaDetector
-from neural_pathways.food_neuron.food_orbit import FoodOrbitBehaviour
+from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour
 
 
 # ============================================================

@@ -2,7 +2,7 @@
 
 Finds bananas in a camera frame and classifies how ripe each one is.
 Used by the drone (`Drone/tello_camera.py`) to find food for the
-fly-inspired "hover → eat" behaviour in `neural_pathways/food_neuron/food_orbit.py`.
+fly-inspired "hover → eat" behaviour in `NeuralPathways/FoodNeuron/food_orbit.py`.
 
 ## How it works
 

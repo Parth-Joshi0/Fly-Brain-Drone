@@ -28,7 +28,7 @@ retreat/hard-turn - when flow gets a lot closer than what already
 triggered avoidance in the navigation controller, i.e. when its gentler
 response wasn't enough.
 
-Uses the optical-flow 3x3 grid (neural_pathways/escape_neuron/optical_flow.grid_flow_strengths) -
+Uses the optical-flow 3x3 grid (NeuralPathways/EscapeNeuron/optical_flow.grid_flow_strengths) -
 not the physics-distance safety net in Simulator/pybullet_drone.py,
 which is a separate, independent backstop (defense in depth: one uses
 vision, the other ground-truth distance; either can catch what the other
@@ -123,7 +123,7 @@ class SafetyLayer:
     def apply(self, cmd, flow, position, already_avoiding=False):
         """cmd: the raw command dict (from ManualController or the
         autonomous navigation controller). flow: the dict returned by
-        neural_pathways.escape_neuron.optical_flow.grid_flow_strengths (must have at least
+        NeuralPathways.EscapeNeuron.optical_flow.grid_flow_strengths (must have at least
         left/right/top/bottom/center). position: the drone's (x, y, z).
         already_avoiding: True when the caller's own navigation state
         machine (reflex_controller.py) is already in one of its own

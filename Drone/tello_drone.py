@@ -13,7 +13,7 @@ Tello's own vgx/vgy telemetry is frequently unreliable/zero on
 non-EDU units). `get_state()["position"]` is instead dead-reckoned by
 integrating the last COMMANDED body-frame velocity over time, rotated by
 the measured yaw. This is only meant to feed
-neural_pathways/flybrain_controller.py's ESCAPE displacement tracking (how
+NeuralPathways/flybrain_controller.py's ESCAPE displacement tracking (how
 far into a dodge it's gotten, relative to where the dodge started) - it
 is never used for absolute navigation here, and `bounds=None` skips the
 boundary-containment logic that would otherwise need real position.
@@ -43,13 +43,13 @@ MAX_RC_PERCENT = 100
 # The Tello reports yaw increasing CLOCKWISE (turning right); this project's
 # convention is positive = counter-clockwise (turning left), the same
 # convention positive yaw_rate carries in every controller and in
-# neural_pathways/escape_neuron/optical_flow.derotate_flow. So the reported heading is negated once,
+# NeuralPathways/EscapeNeuron/optical_flow.derotate_flow. So the reported heading is negated once,
 # here, where it enters the codebase - after which everything downstream
 # (yaw_rate, the orientation quaternion, yaw_degrees, the dead-reckoned
 # position) is in one convention.
 #
 # MEASURED, not assumed, which is the point of it being a named constant:
-# Drone/tests/tello_dng02_test.py --mode calibrate regresses horizontal optic flow
+# Drone/Tests/tello_dng02_test.py --mode calibrate regresses horizontal optic flow
 # against the reported yaw. On 2026-09-27 that fit came out at -86.6 with
 # R^2 0.888, negative at every window size from 1 to 30 frames. A matching
 # convention would have given a positive slope. Re-run that mode after any
@@ -89,7 +89,7 @@ class TelloDrone(DroneInterface):
     def __init__(self, tello, frame_read, proc_width=320, proc_height=240):
         """tello: a connected, streamed-on djitellopy.Tello. frame_read: its
         get_frame_read() result. Both constructed by the caller (see
-        Drone/tests/tello_escape_flight_test.py) so this class never owns the
+        Drone/Tests/tello_escape_flight_test.py) so this class never owns the
         connect/streamon handshake or its failure modes - those need
         different retry/abort handling than anything else here."""
         self._tello = tello
@@ -268,7 +268,7 @@ class TelloDrone(DroneInterface):
 
 
 def _euler_deg_to_quat(roll_deg, pitch_deg, yaw_deg):
-    """Matches neural_pathways/escape_neuron/optical_flow._quat_to_matrix and
+    """Matches NeuralPathways/EscapeNeuron/optical_flow._quat_to_matrix and
     flybrain_controller._pitch_roll's convention: body x forward / y left /
     z up, R = Rz(yaw) @ Ry(pitch) @ Rx(roll). Same function as
     tello_neuron_test.py's euler_deg_to_quat - see its docstring for the
