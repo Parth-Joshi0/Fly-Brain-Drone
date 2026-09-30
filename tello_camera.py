@@ -36,6 +36,45 @@ from controllers.food_orbit import FoodOrbitBehaviour
 
 MIN_BATTERY_FOR_FLIGHT = 30
 
+# Don't take off until the camera has sent a real picture.
+VIDEO_START_TIMEOUT = 10.0
+
+# While flying: no new picture for this long -> stop and hover...
+VIDEO_STALL_HOVER = 0.5
+
+# ...and for this long -> land (we're flying blind).
+VIDEO_LOST_LAND = 3.0
+
+
+def video_is_running(frame_read, placeholder):
+    """
+    True once the video thread is alive and has delivered a real
+    picture. Until then djitellopy hands out a black placeholder
+    frame (not None), so checking for None never caught a dead stream.
+    """
+
+    return (
+        frame_read.worker.is_alive()
+        and frame_read.frame is not placeholder
+    )
+
+
+def wait_for_video(frame_read, placeholder, timeout):
+
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+
+        if video_is_running(frame_read, placeholder):
+            return True
+
+        if not frame_read.worker.is_alive():
+            return False
+
+        time.sleep(0.1)
+
+    return False
+
 
 # ============================================================
 # FLIGHT LOG
@@ -152,6 +191,9 @@ def main():
         tello.get_frame_read()
     )
 
+    # The black picture djitellopy shows before real video arrives
+    placeholder_frame = frame_read.frame
+
 
     # ========================================================
     # FLYING STATE
@@ -165,6 +207,33 @@ def main():
 
 
     try:
+
+        # ====================================================
+        # CHECK THE CAMERA WORKS BEFORE ANYTHING ELSE
+        # ====================================================
+
+        print("Waiting for camera picture...")
+
+        if not wait_for_video(
+            frame_read,
+            placeholder_frame,
+            VIDEO_START_TIMEOUT
+        ):
+
+            print(
+                "NO CAMERA PICTURE - not taking off."
+            )
+
+            print(
+                "Turn the drone off and on, reconnect to its "
+                "Wi-Fi, and try again."
+            )
+
+            return
+
+
+        print("Camera OK")
+
 
         # ====================================================
         # TAKE OFF ONLY WITH --fly
@@ -224,17 +293,46 @@ def main():
         # MAIN CAMERA LOOP
         # ====================================================
 
+        last_frame = None
+
+        last_new_frame_time = time.time()
+
+
         while True:
 
             frame = (
                 frame_read.frame
             )
 
-            if frame is None:
+
+            # =================================================
+            # VIDEO SAFETY: no new picture -> hover, then land
+            # =================================================
+
+            if frame is last_frame or frame is None:
+
+                stalled_for = time.time() - last_new_frame_time
+
+                if flying and stalled_for > VIDEO_LOST_LAND:
+
+                    print(
+                        "CAMERA LOST - landing."
+                    )
+
+                    break
+
+                if flying and stalled_for > VIDEO_STALL_HOVER:
+
+                    tello.send_rc_control(0, 0, 0, 0)
 
                 time.sleep(0.01)
 
                 continue
+
+
+            last_frame = frame
+
+            last_new_frame_time = time.time()
 
 
             # Tello gives RGB
