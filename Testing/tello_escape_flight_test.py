@@ -40,13 +40,13 @@ Keys (the video window must be focused):
 
 Safety limits:
     --seconds N   hard auto-land this many seconds after takeoff (default
-                  60), regardless of anything else going on.
+                  15), regardless of anything else going on.
 
 Run (needs djitellopy + opencv + numpy; the brain itself runs as a
 subprocess under whichever env has brian2, see
 controllers/flybrain_controller.py):
 
-    python Testing/tello_escape_flight_test.py [--seconds 60] [--fov 55.6] [--log PATH]
+    python Testing/tello_escape_flight_test.py [--seconds 15] [--fov 55.6] [--log PATH]
 """
 
 import argparse
@@ -178,7 +178,7 @@ def open_stream(tello, log):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--seconds", type=float, default=60.0, help="hard auto-land time after takeoff")
+    parser.add_argument("--seconds", type=float, default=15.0, help="hard auto-land time after takeoff")
     parser.add_argument("--fov", type=float, default=DEFAULT_VERTICAL_FOV)
     parser.add_argument("--log", default=str(Path(__file__).with_suffix(".log")))
     args = parser.parse_args()

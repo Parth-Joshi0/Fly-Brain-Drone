@@ -22,6 +22,23 @@ lines - under whichever Python environment does have those installed
 downstream of this file (main.py, SafetyLayer) stays identical whichever
 controller is plugged in; this is the only file that needs to know
 FlyBrainController - or Brian2 - exists at all.
+
+Two behaviours live here, and only the first is on by default:
+
+  * LOOMING / ESCAPE - always active. Maps LoomingDetector expansion to the
+    circuit's loom inputs and turns DNp01/DNp03/DNp06 activity into a dodge.
+
+  * DNg02 OPTOMOTOR + THRUST - only when constructed with optomotor=True.
+    Maps residual optic flow onto DNg02's drive pool and turns the population's
+    recruitment count into a yaw correction and a forward-speed adjustment.
+    With the flag off the brain subprocess never builds the DNg02 half at all,
+    so the escape path is byte-for-byte the network it has always been - which
+    matters because the escape flight test is being tuned separately.
+
+Escape stays strictly dominant either way: the ESCAPE branch of decide() is
+untouched by the optomotor path, and every DNg02 term is additionally scaled by
+(1 - escape), so two independent things have to fail before a dodge gets
+watered down by a course correction.
 """
 
 import json
@@ -84,6 +101,54 @@ ESCAPE_SIDE_MIN_FLOW_DIFF = 0.2   # else: dodge toward the lower-flow side if it
 ESCAPE_DODGE_SIDE_M = 1.2         # roughly how far one dodge carries the drone,
 ESCAPE_DODGE_BACK_M = 1.2         # including the slide while braking, padded
 ESCAPE_BOUNDS_MARGIN = 0.3        # m inside the flight-area bounds a dodge must end
+
+# --- DNg02 optomotor course stabilization + graded thrust. Off unless the
+# caller passes optomotor=True, and when it's off the brain subprocess doesn't
+# even build the DNg02 half (see _FlyBrainProcess), so the escape path is the
+# same 274-neuron network it has always been. ---
+#
+# Residual common-mode horizontal flow (px/frame, from
+# vision/optical_flow.signed_hemifield_flow on already-derotated flow) below
+# the floor reads as zero; floor + SPAN maps to a full request. The floor is
+# doing the same job LOOM_EXPANSION_FLOOR does for looming - derotation leaves
+# a real residual even with nothing moving, so without it the drone chases its
+# own Farneback noise.
+# 0.25, not 0.15: a clean props-off baseline (Testing/dng02_pan2.log) measured
+# quiet |rotation| p95 0.085 / max 0.150, i.e. right on the old floor.
+OPTOMOTOR_FLOW_FLOOR = 0.25
+OPTOMOTOR_FLOW_SPAN = 1.5
+
+# Common drive level the steering request swings around. Needs to be non-zero:
+# the opponent channel works by pushing one side up and the other down, and
+# there's nothing to push down from at zero. 0.5 sits in the middle of the
+# measured recruitment curve, where the population has room both ways.
+OPTOMOTOR_BASE_DRIVE = 0.5
+
+# rad/s of yaw at |steer| = 1.0. Deliberately small - about a sixth of
+# YAW_RATE_SCALE. This is the first closed feedback loop in this project that
+# runs through the airframe, so the failure mode is a growing oscillation
+# rather than a wrong-but-steady heading, and the gain is the thing that sets
+# how fast that would grow. Raise it only after a flight test shows no
+# oscillation at this value.
+DNG02_YAW_GAIN = 0.15
+DNG02_YAW_AUTHORITY = 0.4     # hard cap on the DNg02 contribution, rad/s
+
+# Forward speed the population's recruitment count buys, m/s at thrust = 1.0.
+# Modest next to CRUISE_FORWARD_SPEED (1.0) because this is added on top of it.
+DNG02_THRUST_SPEED = 0.4
+
+# Thrust is SET-POINT regulation, not proportional to flow, and that's a
+# stability requirement rather than a stylistic choice. Namiki et al. measured
+# DNg02 open loop: imposed wide-field motion in, higher wingbeat amplitude out.
+# In closed loop the drone's own speed is what generates the flow, so wiring
+# "more flow -> more thrust" would be positive feedback and it would accelerate
+# until something else stopped it. Flies instead hold a preferred image
+# velocity, which is negative feedback: thrust rises when flow is BELOW the
+# set-point. So the population gets driven by the set-point error.
+OPTOMOTOR_FLOW_SETPOINT = 1.2   # px/frame of translational flow to hold
+OPTOMOTOR_SETPOINT_SPAN = 1.2   # error that maps to a full request
+
+OPTOMOTOR_STATE_THRESHOLD = 0.2  # |steer| above this -> "OPTOMOTOR" state
 
 # --- Boundary containment - same behavior as
 # controllers/reflex_controller.py's BOUNDARY_RETURN state, with its own
@@ -159,10 +224,16 @@ class _FlyBrainProcess:
     Brian2 network, nowhere near fast enough to redo every decide() call)
     and its line-delimited JSON protocol."""
 
-    def __init__(self):
+    def __init__(self, with_dng02=False):
         python = _find_python_with_brian2()
+        # --dng02 makes fly_brain_controller.py build the DNg02 flight-motor
+        # half as well. Without it the network is the original 274 neurons with
+        # the original object graph, and therefore the same Poisson RNG stream -
+        # so leaving optomotor off doesn't just leave the escape behaviour
+        # statistically similar, it leaves it identical.
+        argv = [python, str(FLY_BRAIN_SCRIPT)] + (["--dng02"] if with_dng02 else [])
         self._proc = subprocess.Popen(
-            [python, str(FLY_BRAIN_SCRIPT)],
+            argv,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1,
         )
@@ -171,6 +242,18 @@ class _FlyBrainProcess:
             raise RuntimeError(
                 f"fly_brain_controller.py failed to start:\n{self._proc.stderr.read()}"
             )
+        # The handshake carries the network's own constants and the DNg02 labels
+        # in recruitment order. Worth keeping: this process cannot import
+        # fly_brain_controller (no brian2 here on purpose), so this is the only
+        # way a log can record what the circuit was ACTUALLY configured with
+        # rather than what this side assumed.
+        try:
+            self.info = json.loads(ready_line)
+        except ValueError:
+            self.info = {}
+        self.constants = self.info.get("constants", {})
+        self.dng02_labels = self.info.get("dng02_labels", [])
+        self.dng02_sides = self.info.get("dng02_sides", [])
 
     def request(self, payload):
         if self._proc.poll() is not None:
@@ -198,8 +281,9 @@ class FlyBrainController:
     real connectome subnetwork, and fly_brain_controller.py for what that
     subnetwork actually is."""
 
-    def __init__(self, bounds=None):
+    def __init__(self, bounds=None, *, optomotor=False):
         self.bounds = bounds
+        self.optomotor = optomotor
         self.state = "CRUISE"
         self._escape_timer = 0
         self._escape_dir = 1          # +1 = dodge left, -1 = dodge right
@@ -211,7 +295,8 @@ class FlyBrainController:
         self._last_tie_dir = -1
         self._prev_tilt = None
         self._rotation_floor = 0.0
-        self._brain = _FlyBrainProcess()
+        self.dng02 = {"n_left": 0, "n_right": 0, "thrust": 0.0, "steer": 0.0, "counts": {}}
+        self._brain = _FlyBrainProcess(with_dng02=optomotor)
         # Fresh log each run (not appended) - this is a debug tool for
         # "what did the circuit just do", not a long-lived history.
         self._log_file = open(SPIKE_LOG_PATH, "w")
@@ -250,9 +335,13 @@ class FlyBrainController:
         floor = self._loom_floor(state)
         loom_left = self._loom(max(flow["expansion_left"], flow["expansion_center"]), floor)
         loom_right = self._loom(max(flow["expansion_right"], flow["expansion_center"]), floor)
-        result = self._brain.request({"loom_left": loom_left, "loom_right": loom_right})
+        payload = {"loom_left": loom_left, "loom_right": loom_right}
+        if self.optomotor:
+            payload.update(self._optomotor_drive(flow))
+        result = self._brain.request(payload)
         yaw, forward, escape = result["yaw"], result["forward"], result["escape"]
         spike_counts = result.get("spike_counts", {})
+        self.dng02 = result.get("dng02", self.dng02)
 
         if self._escape_timer > 0:
             self._escape_timer -= 1
@@ -292,8 +381,27 @@ class FlyBrainController:
             forward_speed = CRUISE_FORWARD_SPEED * forward * (1.0 - escape)
             strafe_speed = 0.0
             yaw_rate = YAW_RATE_SCALE * yaw
+            steer = 0.0
+            if self.optomotor:
+                steer = self.dng02.get("steer", 0.0)
+                thrust = self.dng02.get("thrust", 0.0)
+                # MINUS, and it is the opposite sign to the DNp06 line above.
+                # DNg02 activity tracks wingbeat amplitude in the CONTRALATERAL
+                # wing, so more right-side DNg02 means a bigger left wingbeat,
+                # which yaws the fly RIGHT - fly_brain_controller.py's steer is
+                # positive for exactly that case. This project's convention is
+                # positive yaw_rate = turn LEFT. Hence subtract. DNp06's yaw is
+                # added instead because that circuit steers AWAY from a looming
+                # object, which is already positive-is-left. Two opposite
+                # conventions two lines apart, both deliberate.
+                dng02_yaw = -DNG02_YAW_GAIN * steer * (1.0 - escape)
+                dng02_yaw = max(-DNG02_YAW_AUTHORITY, min(DNG02_YAW_AUTHORITY, dng02_yaw))
+                yaw_rate += dng02_yaw
+                forward_speed += DNG02_THRUST_SPEED * thrust * (1.0 - escape)
             if abs(yaw) > AVOID_STATE_THRESHOLD:
                 self.state = "AVOID_LEFT" if yaw > 0 else "AVOID_RIGHT"
+            elif abs(steer) > OPTOMOTOR_STATE_THRESHOLD:
+                self.state = "OPTOMOTOR"
             else:
                 self.state = "CRUISE"
 
@@ -301,6 +409,59 @@ class FlyBrainController:
             self._log_spikes(loom_left, loom_right, spike_counts, escape, forward_speed, yaw_rate)
 
         return self._command(forward_speed=forward_speed, yaw_rate=yaw_rate, strafe_speed=strafe_speed)
+
+    @staticmethod
+    def _optomotor_drive(flow):
+        """Turns optic flow into a DNg02 drive request.
+
+        Expects flow to carry vision/optical_flow.signed_hemifield_flow's
+        "rotation" and "translation" keys, computed on flow that has already
+        been through derotate_flow() - so "rotation" is the rotation the drone
+        did NOT command, which is the only part worth correcting. Both are
+        read with a default, so a caller that never computed them (which is
+        every caller that existed before this) gets a zero request and the
+        flight-motor path stays idle.
+
+        Steering is opponent: one side's request goes up exactly as much as the
+        other's goes down, around OPTOMOTOR_BASE_DRIVE. That is the pattern
+        Namiki et al. recorded for a yaw stimulus - rightward motion raised the
+        right DNg02 cells while simultaneously lowering the left ones.
+        """
+        rotation = flow.get("rotation", 0.0)
+        translation = flow.get("translation", 0.0)
+
+        # Steering: magnitude from how much uncommanded rotation there is,
+        # direction from its sign. rotation > 0 means the scene is sliding
+        # right, i.e. the drone is rotating LEFT without being asked to, so the
+        # correction is to yaw right - which means favouring the RIGHT DNg02.
+        magnitude = (abs(rotation) - OPTOMOTOR_FLOW_FLOOR) / OPTOMOTOR_FLOW_SPAN
+        magnitude = max(0.0, min(1.0, magnitude))
+        offset = magnitude if rotation > 0 else -magnitude
+
+        # Thrust: set-point error, not raw flow. See OPTOMOTOR_FLOW_SETPOINT.
+        error = (OPTOMOTOR_FLOW_SETPOINT - abs(translation)) / OPTOMOTOR_SETPOINT_SPAN
+        drive_common = OPTOMOTOR_BASE_DRIVE + max(-1.0, min(1.0, error)) * (
+            1.0 - OPTOMOTOR_BASE_DRIVE)
+
+        # Steering gets its authority first, and thrust yields whatever is left.
+        # The brain clips each side's request to +-1, so without this cap a
+        # common drive near 1.0 pins BOTH sides at the ceiling and the opponent
+        # channel stops doing anything at all - the two requests come out equal.
+        # Measured on the first real desk run: translational flow on a stationary
+        # drone is ~0.01 against a setpoint of 1.2, so the set-point error pinned
+        # drive_common at 0.995 median and both sides saturated on 18% of cycles,
+        # cutting the steering signal to roughly a third of what it manages with
+        # headroom. That is not a desk-only problem: hover, slow flight, climbing
+        # and any low-texture scene all sit below the flow setpoint, so steering
+        # authority would collapse exactly when course-holding matters most.
+        # Yielding thrust is the right way round - recruitment is already near
+        # saturation up there, so the thrust cost is small.
+        drive_common = min(drive_common, 1.0 - abs(offset))
+        return {
+            "drive_common": drive_common,
+            "drive_left": -offset,
+            "drive_right": offset,
+        }
 
     def _loom_floor(self, state):
         """Expansion expected from the drone's own motion, which isn't looming."""

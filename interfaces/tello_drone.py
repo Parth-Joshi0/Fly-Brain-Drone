@@ -40,6 +40,33 @@ from interfaces.drone_interface import DroneInterface
 RC_SPEED_SCALE = 60.0   # percent per m/s - ASSUMED, see module docstring
 MAX_RC_PERCENT = 100
 
+# The Tello reports yaw increasing CLOCKWISE (turning right); this project's
+# convention is positive = counter-clockwise (turning left), the same
+# convention positive yaw_rate carries in every controller and in
+# vision/optical_flow.derotate_flow. So the reported heading is negated once,
+# here, where it enters the codebase - after which everything downstream
+# (yaw_rate, the orientation quaternion, yaw_degrees, the dead-reckoned
+# position) is in one convention.
+#
+# MEASURED, not assumed, which is the point of it being a named constant:
+# Testing/tello_dng02_test.py --mode calibrate regresses horizontal optic flow
+# against the reported yaw. On 2026-09-27 that fit came out at -86.6 with
+# R^2 0.888, negative at every window size from 1 to 30 frames. A matching
+# convention would have given a positive slope. Re-run that mode after any
+# firmware change and it will say whether this constant is still right: with
+# the constant applied, a CORRECT value now yields a POSITIVE slope.
+#
+# Why it mattered enough to chase down: derotate_flow subtracts
+# pixels_per_radian * yaw_rate * dt to cancel the drone's own rotation, and
+# LoomingDetector warps frames by this orientation to remove rotation before
+# measuring expansion. With the sign wrong both ADD self-motion instead of
+# removing it, so every turn inflates apparent looming.
+#
+# NOTE this covers yaw only. Pitch and roll enter the same quaternion and are
+# still unverified - they sit near zero on a desk, so the props-off tests could
+# not measure them.
+TELLO_YAW_SIGN = -1.0
+
 # Tello send_rc_control sign convention (per djitellopy/SDK docs):
 #   left_right_velocity:      -100 = left,  +100 = right
 #   forward_backward_velocity: -100 = back,  +100 = forward
@@ -170,7 +197,9 @@ class TelloDrone(DroneInterface):
             except (KeyError, TypeError, ValueError):
                 return default
 
-        pitch_deg, roll_deg, yaw_deg = num("pitch"), num("roll"), num("yaw")
+        pitch_deg, roll_deg = num("pitch"), num("roll")
+        # Into this project's convention once, at the boundary - see TELLO_YAW_SIGN.
+        yaw_deg = TELLO_YAW_SIGN * num("yaw")
         yaw_rad = math.radians(yaw_deg)
 
         now = time.perf_counter()

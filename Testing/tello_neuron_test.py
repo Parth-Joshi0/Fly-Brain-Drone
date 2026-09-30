@@ -72,6 +72,7 @@ import controllers.flybrain_controller as fbc
 from controllers.flybrain_controller import FlyBrainController
 from vision.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
                                  grid_flow_strengths)
+from interfaces.tello_drone import TELLO_YAW_SIGN
 
 # The Tello's 82.6 deg is a DIAGONAL spec; LoomingDetector's fov argument
 # is the VERTICAL one (f = (height/2)/tan(fov/2)), same convention as the
@@ -481,8 +482,15 @@ def main():
             dt = max(dt, 1e-3)
 
             att = read_attitude(tello)
-            quat = euler_deg_to_quat(att["roll"], att["pitch"], att["yaw"])
-            yaw_rad = math.radians(att["yaw"])
+            # The Tello reports yaw clockwise-positive; this project is
+            # counter-clockwise-positive. Convert once, here, exactly as
+            # interfaces/tello_drone.py's get_state() does - these scripts read
+            # the attitude themselves rather than going through it, so the
+            # conversion has to be applied in both places or the perception
+            # tests and the flight path disagree about which way a turn went.
+            yaw_deg = TELLO_YAW_SIGN * att["yaw"]
+            quat = euler_deg_to_quat(att["roll"], att["pitch"], yaw_deg)
+            yaw_rad = math.radians(yaw_deg)
             if prev_yaw is None:
                 yaw_rate = 0.0
             else:
@@ -531,7 +539,7 @@ def main():
             state = {
                 "position": (0.0, 0.0, 0.0),
                 "orientation": quat,
-                "yaw_degrees": float(att["yaw"]),
+                "yaw_degrees": float(yaw_deg),
                 "actual_vx": 0.0,
             }
 

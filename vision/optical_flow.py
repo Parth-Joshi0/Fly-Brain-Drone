@@ -26,7 +26,7 @@ def compute_flow(prev_gray, gray):
 _PIXELS_PER_RADIAN = 75.0
 
 
-def derotate_flow(flow, yaw_rate, dt):
+def derotate_flow(flow, yaw_rate, dt, pixels_per_radian=_PIXELS_PER_RADIAN):
     """Cancel the flow caused by the drone's own yaw rotation, leaving only
     flow caused by actually getting closer to something.
 
@@ -51,10 +51,81 @@ def derotate_flow(flow, yaw_rate, dt):
     and controllers/safety_layer.py's already_avoiding flag, which stops
     that residual from triggering a second, conflicting turn decision on
     top of a turn already in progress.
+
+    pixels_per_radian is exposed because the default was calibrated for the
+    simulator's DroneCamera and is wrong for the Tello, and because how much
+    that matters depends entirely on what the caller does with the result.
+    Everything that existed before this argument feeds the output into
+    grid_flow_strengths, which takes a magnitude - there a scale error is
+    absorbed by the hand-tuned thresholds downstream. signed_hemifield_flow
+    below uses the signed RESIDUAL instead, where a too-small correction
+    leaves part of the drone's own commanded yaw in the signal with the same
+    sign as a genuine drift, which is positive feedback in any loop built on
+    it. So: calibrate it against real telemetry before closing a loop on this
+    (Testing/tello_dng02_test.py --mode calibrate-derotation does that), and
+    leave it alone otherwise.
     """
     corrected = flow.copy()
-    corrected[..., 0] -= _PIXELS_PER_RADIAN * yaw_rate * dt
+    corrected[..., 0] -= pixels_per_radian * yaw_rate * dt
     return corrected
+
+
+def signed_hemifield_flow(flow, ground_fraction=0.8, side_margin=0.15):
+    """Signed mean horizontal flow per hemifield, decomposed into the rotation
+    and expansion components - the part grid_flow_strengths throws away when it
+    takes a magnitude.
+
+    Pass flow that has already been through derotate_flow(), so the drone's own
+    COMMANDED yaw has been subtracted and only rotation it did not ask for
+    survives. That residual is what an optomotor reflex should null; the
+    commanded part is not an error.
+
+    Why signed, and why this decomposition: magnitude cannot tell "the scene is
+    sliding right" from "the scene is sliding left", so it cannot drive a
+    steering response at all. And a per-hemifield value on its own cannot tell
+    rotation from approach. The two separate cleanly, because they have
+    different symmetry:
+
+        rotating right  -> scene slides left  in BOTH hemifields (same sign)
+        moving forward  -> scene slides out to EACH side         (opposite signs)
+
+    so the common mode isolates rotation and the difference isolates translation,
+    for the cost of two means over an array the caller already has. Without
+    that, a drone flying at a wall reads the outward flow as a turn and yaws at
+    everything it approaches.
+
+    side_margin drops that fraction of each outer edge, where Farneback's
+    border extrapolation is worst and where rotational flow is least uniform -
+    the same non-uniformity derotate_flow's docstring describes as its main
+    limitation.
+
+    Returns:
+        left, right   signed mean horizontal flow per hemifield, px/frame,
+                      positive = image content moving RIGHT
+        rotation      (left + right) / 2, the common mode: positive means the
+                      scene is sliding right, i.e. the drone is rotating LEFT
+        translation   (right - left) / 2, the differential: positive means the
+                      scene is spreading outwards, i.e. moving forward.
+                      Named translation, not expansion, to keep it clearly
+                      apart from LoomingDetector's expansion - that one is a
+                      flow DIVERGENCE in 1/s (~2/time-to-contact), this is a
+                      horizontal difference in px/frame. Different quantity,
+                      different units, different circuit.
+    """
+    h, w = flow.shape[:2]
+    band = flow[: int(h * ground_fraction), :]
+    margin = int(w * side_margin)
+    half = w // 2
+
+    u = band[..., 0]
+    left = float(np.mean(u[:, margin:half]))
+    right = float(np.mean(u[:, half:w - margin]))
+    return {
+        "left": left,
+        "right": right,
+        "rotation": (left + right) / 2.0,
+        "translation": (right - left) / 2.0,
+    }
 
 
 def grid_flow_strengths(flow, ground_fraction=0.8):
