@@ -16,7 +16,7 @@ import pybullet_data
 
 from Simulator.environment import build_environment
 from Simulator.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
-from reflex_controller import ReflexController
+from Simulator.reflex_controller import ReflexController
 from safety_layer import SafetyLayer
 from NeuralPathways.EscapeNeuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths
 from Simulator.Evaluation.metrics import TrialMetrics, print_summary

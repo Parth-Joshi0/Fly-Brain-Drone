@@ -18,7 +18,7 @@ Priority system (each tier can override everything below it):
     NORMAL NAVIGATION      (CLEAR: whatever was requested, speed-staged)
 
 The old WARNING tier (a gentle direction nudge at moderate flow) was
-removed from here - that's now reflex_controller.py's
+removed from here - that's now Simulator/reflex_controller.py's
 CRUISE/AVOID_LEFT/AVOID_RIGHT state machine's job, and it triggers
 *earlier* (lower flow threshold, i.e. farther from the obstacle) than
 this layer's DANGER tier ever did. Keeping both would mean two different
@@ -47,7 +47,7 @@ AVOIDANCE_SPEED = 0.2    # m/s - actively avoiding (used as the retreat speed to
 # camera FOV/resolution or the course layout. Same calibration basis as
 # before: normal cruising flow tops out ~0.6-0.8, a real obstacle a meter
 # or so away pushes flow above 1.0, and it climbs past 1.5-2.4+ up close.
-# These should stay ABOVE reflex_controller.py's AVOID_TRIGGER_THRESHOLD -
+# These should stay ABOVE Simulator/reflex_controller.py's AVOID_TRIGGER_THRESHOLD -
 # this layer is meant to escalate only if that controller's own avoidance
 # isn't resolving things fast enough, not race it on the same reading.
 CLEAR_THRESHOLD = 0.35     # below this everywhere -> safe to go FAST_SPEED
@@ -61,7 +61,7 @@ EMERGENCY_TURN_RATE = 1.0
 
 # --- Stuck detection (item 6) -------------------------------------------
 # STUCK_WINDOW needs to comfortably outlast one normal avoidance episode
-# (reflex_controller.py commits to an AVOID_LEFT/RIGHT turn for at least
+# (Simulator/reflex_controller.py commits to an AVOID_LEFT/RIGHT turn for at least
 # AVOID_MIN_CYCLES, and a real turn can reasonably take a few seconds of
 # genuinely small net displacement while it comes around) - otherwise this
 # detector fires mid-turn, overrides it with an unrelated escape action,
@@ -126,7 +126,7 @@ class SafetyLayer:
         NeuralPathways.EscapeNeuron.optical_flow.grid_flow_strengths (must have at least
         left/right/top/bottom/center). position: the drone's (x, y, z).
         already_avoiding: True when the caller's own navigation state
-        machine (reflex_controller.py) is already in one of its own
+        machine (Simulator/reflex_controller.py) is already in one of its own
         avoidance states (AVOID_LEFT/AVOID_RIGHT/WALL_ESCAPE/
         EMERGENCY_ESCAPE/BOUNDARY_RETURN) - i.e. it's already turning
         away from something, not just cruising. When True, this layer won't add its own
@@ -240,7 +240,7 @@ class SafetyLayer:
             return final, info
 
         # Between WARNING and DANGER: below this layer's own escalation
-        # thresholds, so let reflex_controller.py's own avoidance decision
+        # thresholds, so let Simulator/reflex_controller.py's own avoidance decision
         # (already in the command it handed us) through unchanged - just
         # keep the speed at NORMAL rather than FAST while something's
         # still in view.

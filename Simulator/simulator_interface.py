@@ -5,7 +5,8 @@ physical controller for manual mode, a real course with no obstacle IDs
 to report) later. Mirrors Drone/drone_interface.py: main.py only
 ever talks to this, never to PyBullet directly, so testing against the
 real drone means writing one new class here and changing one line in
-main.py - nothing in safety_layer.py/reflex_controller.py or NeuralPathways/ needs to change.
+main.py - nothing in safety_layer.py/reflex_controller.py or NeuralPathways/
+needs to change.
 """
 
 from abc import ABC, abstractmethod

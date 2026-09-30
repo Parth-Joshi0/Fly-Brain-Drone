@@ -1,6 +1,6 @@
 # Drone
 
-Everything specific to flying — the abstract drone contract, the real DJI Tello implementation of it, manual keyboard control, and the live banana-eating flight script. `Simulator/pybullet_drone.py` implements the same `DroneInterface` contract for the simulated drone; nothing above this layer (`main.py`, `safety_layer.py`, `reflex_controller.py`, `NeuralPathways/`) needs to know which one it's talking to.
+Everything specific to flying — the abstract drone contract, the real DJI Tello implementation of it, manual keyboard control, and the live banana-eating flight script. `Simulator/pybullet_drone.py` implements the same `DroneInterface` contract for the simulated drone; nothing above this layer (`main.py`, `safety_layer.py`, `Simulator/reflex_controller.py`, `NeuralPathways/`) needs to know which one it's talking to.
 
 ## Files
 

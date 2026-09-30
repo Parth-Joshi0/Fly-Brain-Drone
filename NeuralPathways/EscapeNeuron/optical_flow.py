@@ -47,7 +47,7 @@ def derotate_flow(flow, yaw_rate, dt, pixels_per_radian=_PIXELS_PER_RADIAN):
     simple constant in testing here). That residual variance means any
     sustained yaw rate produces some baseline elevated flow reading even
     with nothing nearby - see AVOID_TURN_RATE and BOUNDARY_TURN_RATE in
-    reflex_controller.py, which are kept moderate partly for this reason,
+    Simulator/reflex_controller.py, which are kept moderate partly for this reason,
     and safety_layer.py's already_avoiding flag, which stops
     that residual from triggering a second, conflicting turn decision on
     top of a turn already in progress.

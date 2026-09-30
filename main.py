@@ -36,14 +36,14 @@ PyBulletSimulator, the SimulatorInterface implementation constructed
 below - same pattern as PyBulletDrone/DroneInterface. Swapping to the
 real drone means writing one new SimulatorInterface (and DroneInterface)
 implementation and changing the two lines below that construct them;
-nothing else in this file, or in NeuralPathways/ or reflex_controller.py,
+nothing else in this file, or in NeuralPathways/ or Simulator/reflex_controller.py,
 needs to change.
 """
 
 import cv2
 
 from Simulator.pybullet_simulator import PyBulletSimulator, SimulatorError
-from reflex_controller import ReflexController
+from Simulator.reflex_controller import ReflexController
 from Drone.manual_controller import ManualController
 from safety_layer import SafetyLayer
 from NeuralPathways.EscapeNeuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector

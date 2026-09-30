@@ -4,11 +4,11 @@ Fly-Brain connectome circuit in fly_brain_controller.py.
 
 main.py only ever talks to an autonomous controller through
 `decide(flow, state) -> command dict` (same shape as ReflexController and
-ManualController - see reflex_controller.py's module docstring), plus a
+ManualController - see Simulator/reflex_controller.py's module docstring), plus a
 `.state` string (shown on the HUD, and checked by SafetyLayer.apply()'s
 already_avoiding argument) and a `.reset()` method. This class provides
 exactly that surface, backed by fly_brain_controller.py's
-FlyBrainController instead of reflex_controller.py's hand-written state
+FlyBrainController instead of Simulator/reflex_controller.py's hand-written state
 machine.
 
 fly_brain_controller.py needs Brian2 (+pandas/pyarrow) to build and run
@@ -76,7 +76,7 @@ LOOM_EXPANSION_SPAN = 2.0
 YAW_RATE_SCALE = 0.9          # rad/s at |yaw|=1.0 - comparable to
                                 # safety_layer's EMERGENCY_TURN_RATE
 CRUISE_FORWARD_SPEED = 1.0    # m/s at forward=1.0 - matches
-                                # reflex_controller's CRUISE_SPEED
+                                # Simulator/reflex_controller's CRUISE_SPEED
 ESCAPE_STATE_THRESHOLD = 0.6  # escape signal above this -> "ESCAPE" state
 AVOID_STATE_THRESHOLD = 0.05  # |yaw| above this -> "AVOID_LEFT"/"AVOID_RIGHT" state
 
@@ -152,12 +152,12 @@ OPTOMOTOR_SETPOINT_SPAN = 1.2   # error that maps to a full request
 OPTOMOTOR_STATE_THRESHOLD = 0.2  # |steer| above this -> "OPTOMOTOR" state
 
 # --- Boundary containment - same behavior as
-# reflex_controller.py's BOUNDARY_RETURN state, with its own
+# Simulator/reflex_controller.py's BOUNDARY_RETURN state, with its own
 # copy of the tuning constants below: the neural circuit only ever sees
 # looming, it has no notion of this course's flight-area edges, so it
 # needs independent handling exactly like ReflexController already does,
 # and each autonomous controller is meant to be self-contained/swappable
-# (see reflex_controller.py's "Swap-in contract" note). The stateless
+# (see Simulator/reflex_controller.py's "Swap-in contract" note). The stateless
 # geometry itself (boundary_math.py) is shared - only the
 # tuning and state-machine behavior are kept independent. ---
 BOUNDARY_FORWARD_SPEED = 0.5
