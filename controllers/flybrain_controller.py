@@ -32,6 +32,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from controllers.boundary_math import (heading_rate_toward, outside_bounds, well_inside_bounds)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FLY_BRAIN_SCRIPT = REPO_ROOT / "fly_brain_controller.py"
 SPIKE_LOG_PATH = REPO_ROOT / "flybrain_spikes.log"
@@ -84,12 +86,14 @@ ESCAPE_DODGE_BACK_M = 1.2         # including the slide while braking, padded
 ESCAPE_BOUNDS_MARGIN = 0.3        # m inside the flight-area bounds a dodge must end
 
 # --- Boundary containment - same behavior as
-# controllers/reflex_controller.py's BOUNDARY_RETURN state (same
-# constants), duplicated rather than imported: the neural circuit only
-# ever sees looming, it has no notion of this course's flight-area edges,
-# so it needs independent handling exactly like ReflexController already
-# does, and each autonomous controller is meant to be self-contained/
-# swappable (see reflex_controller.py's "Swap-in contract" note). ---
+# controllers/reflex_controller.py's BOUNDARY_RETURN state, with its own
+# copy of the tuning constants below: the neural circuit only ever sees
+# looming, it has no notion of this course's flight-area edges, so it
+# needs independent handling exactly like ReflexController already does,
+# and each autonomous controller is meant to be self-contained/swappable
+# (see reflex_controller.py's "Swap-in contract" note). The stateless
+# geometry itself (controllers/boundary_math.py) is shared - only the
+# tuning and state-machine behavior are kept independent. ---
 BOUNDARY_FORWARD_SPEED = 0.5
 BOUNDARY_TURN_RATE = 0.35
 BOUNDARY_TURN_GAIN = 1.2
@@ -396,25 +400,18 @@ class FlyBrainController:
             "pressed_direction": "(flybrain)",
         }
 
-    # --- boundary helpers (identical to reflex_controller.py's) ---
+    # --- boundary helpers ---
 
     def _boundary_return_command(self, position, state):
-        yaw = math.radians(state["yaw_degrees"]) if state else 0.0
-        dx = self.bounds["center_x"] - position[0]
-        dy = self.bounds["center_y"] - position[1]
-        target_heading = math.atan2(dy, dx)
-        heading_error = (target_heading - yaw + math.pi) % (2 * math.pi) - math.pi
-        yaw_rate = max(-BOUNDARY_TURN_RATE, min(BOUNDARY_TURN_RATE, heading_error * BOUNDARY_TURN_GAIN))
+        yaw_degrees = state["yaw_degrees"] if state else 0.0
+        target = (self.bounds["center_x"], self.bounds["center_y"])
+        yaw_rate = heading_rate_toward(
+            position, yaw_degrees, target, BOUNDARY_TURN_RATE, BOUNDARY_TURN_GAIN
+        )
         return self._command(BOUNDARY_FORWARD_SPEED, yaw_rate)
 
     def _outside_bounds(self, position):
-        x, y = position[0], position[1]
-        b = self.bounds
-        return x < b["min_x"] or x > b["max_x"] or y < b["min_y"] or y > b["max_y"]
+        return outside_bounds(position, self.bounds)
 
     def _well_inside_bounds(self, position):
-        x, y = position[0], position[1]
-        b = self.bounds
-        m = BOUNDARY_RELEASE_MARGIN
-        return (b["min_x"] + m < x < b["max_x"] - m
-                and b["min_y"] + m < y < b["max_y"] - m)
+        return well_inside_bounds(position, self.bounds, BOUNDARY_RELEASE_MARGIN)

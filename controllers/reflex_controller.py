@@ -47,7 +47,13 @@ ManualController.decide() returns. flybrain_controller.py implements the
 same shape.
 """
 
-import math
+from controllers.boundary_math import (
+    heading_error_toward,
+    heading_rate_toward,
+    near_or_outside_bounds,
+    outside_bounds,
+    well_inside_bounds,
+)
 
 # --- Obstacle detection / avoidance - tune freely -----------------------
 #
@@ -267,9 +273,9 @@ class ReflexController:
         # --- Priority 2: BOUNDARY_RETURN - never leave the walled area. ---
         if self.bounds is not None:
             if self.state == "BOUNDARY_RETURN":
-                if self._well_inside_bounds(position):
+                if well_inside_bounds(position, self.bounds, BOUNDARY_RELEASE_MARGIN):
                     self._exit_to_cruise()
-            elif self._outside_bounds(position):
+            elif outside_bounds(position, self.bounds):
                 self._enter_boundary_return()
         if self.state == "BOUNDARY_RETURN":
             return self._boundary_return_command(position, yaw_degrees)
@@ -343,11 +349,11 @@ class ReflexController:
     def _enter_emergency_escape(self, position, yaw_degrees, left, right):
         self.state = "EMERGENCY_ESCAPE"
         self._emergency_timer = EMERGENCY_ESCAPE_CYCLES
-        near_boundary = self.bounds is not None and self._near_or_outside_bounds(position, NEAR_BOUNDARY_MARGIN)
+        near_boundary = self.bounds is not None and near_or_outside_bounds(position, self.bounds, NEAR_BOUNDARY_MARGIN)
         self._emergency_toward_interior = near_boundary
         if near_boundary:
             target = (self.bounds["center_x"], self.bounds["center_y"])
-            heading_error = self._heading_error_toward(position, yaw_degrees, target)
+            heading_error = heading_error_toward(position, yaw_degrees, target)
             self._emergency_direction = "LEFT" if heading_error > 0 else "RIGHT"
         else:
             self._emergency_direction = "LEFT" if left < right else "RIGHT"
@@ -365,7 +371,7 @@ class ReflexController:
         yaw_rate = 0.0
         if self.bounds is not None and self._visit_counts is not None:
             target = self._least_visited_cell_center()
-            yaw_rate = self._heading_rate_toward(
+            yaw_rate = heading_rate_toward(
                 position, yaw_degrees, target, EXPLORATION_MAX_YAW_BIAS, EXPLORATION_BIAS_GAIN
             )
         self.turn_command = "NONE" if abs(yaw_rate) < 1e-3 else ("LEFT" if yaw_rate > 0 else "RIGHT")
@@ -382,7 +388,7 @@ class ReflexController:
         if self._wall_escape_timer <= 0:
             self._exit_to_cruise()
         target = (self.bounds["center_x"], self.bounds["center_y"])
-        yaw_rate = self._heading_rate_toward(
+        yaw_rate = heading_rate_toward(
             position, yaw_degrees, target, WALL_ESCAPE_TURN_RATE, BOUNDARY_TURN_GAIN
         )
         self.turn_command = "LEFT" if yaw_rate > 0 else "RIGHT" if yaw_rate < 0 else "NONE"
@@ -399,7 +405,7 @@ class ReflexController:
 
     def _boundary_return_command(self, position, yaw_degrees):
         target = (self.bounds["center_x"], self.bounds["center_y"])
-        yaw_rate = self._heading_rate_toward(
+        yaw_rate = heading_rate_toward(
             position, yaw_degrees, target, BOUNDARY_TURN_RATE, BOUNDARY_TURN_GAIN
         )
         self.turn_command = "LEFT" if yaw_rate > 0 else "RIGHT" if yaw_rate < 0 else "NONE"
@@ -416,42 +422,6 @@ class ReflexController:
             "reset": False,
             "pressed_direction": "(autonomous)",
         }
-
-    # --- shared steering helper ---
-
-    def _heading_error_toward(self, position, yaw_degrees, target):
-        """Signed angle (radians) from the current heading to target,
-        wrapped to [-pi, pi] - positive means target is to the left
-        (matches this project's yaw convention: positive yaw = turn left)."""
-        yaw = math.radians(yaw_degrees)
-        dx = target[0] - position[0]
-        dy = target[1] - position[1]
-        target_heading = math.atan2(dy, dx)
-        return (target_heading - yaw + math.pi) % (2 * math.pi) - math.pi
-
-    def _heading_rate_toward(self, position, yaw_degrees, target, max_rate, gain):
-        heading_error = self._heading_error_toward(position, yaw_degrees, target)
-        return max(-max_rate, min(max_rate, heading_error * gain))
-
-    # --- boundary helpers ---
-
-    def _outside_bounds(self, position):
-        x, y = position[0], position[1]
-        b = self.bounds
-        return x < b["min_x"] or x > b["max_x"] or y < b["min_y"] or y > b["max_y"]
-
-    def _well_inside_bounds(self, position):
-        x, y = position[0], position[1]
-        b = self.bounds
-        m = BOUNDARY_RELEASE_MARGIN
-        return (b["min_x"] + m < x < b["max_x"] - m
-                and b["min_y"] + m < y < b["max_y"] - m)
-
-    def _near_or_outside_bounds(self, position, margin):
-        x, y = position[0], position[1]
-        b = self.bounds
-        return (x < b["min_x"] + margin or x > b["max_x"] - margin
-                or y < b["min_y"] + margin or y > b["max_y"] - margin)
 
     # --- exploration helpers ---
 
