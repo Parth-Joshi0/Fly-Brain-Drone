@@ -9,5 +9,10 @@ yolov8n.pt
 dataset
 flybrain_spikes.log
 Testing/tello_neuron_test.log
+Drone/flight_logs/tello_neuron_test.log
 .venv
+.venv-brain
 
+NeuralPathways/Data/flywire_neuron_annotations_630.tsv
+.claude
+CLAUDE.md
