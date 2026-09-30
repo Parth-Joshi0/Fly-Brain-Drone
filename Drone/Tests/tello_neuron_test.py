@@ -641,8 +641,8 @@ def main():
             brain_mean = statistics.fmean(stats["ms_brain"])
             log.raw(f"brain_ms       mean={brain_mean:.1f} "
                     f"p95={percentile(stats['ms_brain'], 95):.1f}")
-            # 33ms is the 30Hz decision-loop budget TESTING.md holds
-            # the circuit to. Over it usually means the brain is running
+            # 33ms is the 30Hz decision-loop budget NeuralPathways/README.md
+            # holds the circuit to. Over it usually means the brain is running
             # under a slower brian2 install than intended - see
             # brain_interpreter in the header above.
             if brain_mean > 33.0:

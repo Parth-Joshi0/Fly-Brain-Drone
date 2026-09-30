@@ -2,8 +2,8 @@
 Show the Tello's battery level.
 
 Usage:
-    python battery.py           # print once
-    python battery.py --watch   # keep printing every 5 seconds (Ctrl+C to stop)
+    python Drone/Tests/tello_battery_test.py           # print once
+    python Drone/Tests/tello_battery_test.py --watch   # keep printing every 5 seconds (Ctrl+C to stop)
 
 Connect your Mac to the TELLO-xxxxxx Wi-Fi first.
 """

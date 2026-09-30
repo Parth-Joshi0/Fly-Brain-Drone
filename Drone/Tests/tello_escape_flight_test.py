@@ -67,7 +67,7 @@ from NeuralPathways.EscapeNeuron.optical_flow import LoomingDetector, compute_fl
 
 # Deliberately NOT `import main` - main.py pulls in Simulator/
 # pybullet_simulator.py at module level, which imports pybullet. Per
-# TESTING.md's environment table, the "tello" env this script runs
+# Drone/README.md's Tests section, the "tello" env this script runs
 # under has djitellopy/opencv/numpy only, no pybullet. EMPTY_CMD and
 # apply_command are copied from main.py rather than imported.
 EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,

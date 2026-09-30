@@ -164,6 +164,22 @@ Each `Detection` has:
 | `checkpoints/best_banana_model.pth` | Trained classifier weights |
 | `yolov8n.pt` | YOLOv8 nano weights (COCO) |
 
+## Tests
+
+No automated test suite yet (no `Tests/` folder here) — what exists today is a manual single-image check:
+
+### `test.py`: classify one image by hand
+
+Loads the trained checkpoint, runs it on a single image, and prints the predicted ripeness class plus the full probability breakdown across all 6 classes. Useful for spot-checking the classifier against a specific photo without going through the live detector.
+
+```bash
+python test.py path/to/image.jpg
+```
+
+Falls back to the hardcoded `DEFAULT_CLASS_NAMES` order if `checkpoints/class_names.json` is missing (see Known limitations below) — matches the training order, but is worth fixing properly by saving that file from `train.py`.
+
+The held-out **test** set accuracy numbers in the Results section above (93.6% overall, 562 images) come from evaluating the full test split, not from this script — this script is for eyeballing one image at a time.
+
 ## Known limitations
 
 - **Labels flicker on a real drone.** In flight tests the same banana
