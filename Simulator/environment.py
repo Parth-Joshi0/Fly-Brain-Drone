@@ -9,7 +9,7 @@ gives it almost nothing to work with.
 import os
 import pybullet as p
 
-_ASSET_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
 FLOOR_TEXTURE = os.path.join(_ASSET_DIR, "floor_checker.png")
 OBSTACLE_TEXTURE = os.path.join(_ASSET_DIR, "obstacle_stripes.png")
 

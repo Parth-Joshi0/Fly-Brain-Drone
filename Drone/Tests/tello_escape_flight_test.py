@@ -180,7 +180,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seconds", type=float, default=15.0, help="hard auto-land time after takeoff")
     parser.add_argument("--fov", type=float, default=DEFAULT_VERTICAL_FOV)
-    parser.add_argument("--log", default=str(Path(__file__).with_suffix(".log")))
+    parser.add_argument("--log", default=str(ROOT / "Drone" / "flight_logs" / Path(__file__).with_suffix(".log").name))
     args = parser.parse_args()
 
     log_path = Path(args.log)

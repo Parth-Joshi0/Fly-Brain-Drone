@@ -94,7 +94,7 @@ def main():
     # below what the Tello visibly responds to. Step this up flight by flight;
     # DNG02_YAW_AUTHORITY still caps the result.
     parser.add_argument("--yaw-gain", type=float, default=DNG02_YAW_GAIN)
-    parser.add_argument("--log", default=str(Path(__file__).with_suffix(".log")))
+    parser.add_argument("--log", default=str(ROOT / "Drone" / "flight_logs" / Path(__file__).with_suffix(".log").name))
     args = parser.parse_args()
 
     log_path = Path(args.log)

@@ -6,7 +6,7 @@ temp.py
 yolov8n.pt
 dataset
 flybrain_spikes.log
-Drone/Tests/tello_neuron_test.log
+Drone/flight_logs/tello_neuron_test.log
 .venv
 
 NeuralPathways/Data/flywire_neuron_annotations_630.tsv

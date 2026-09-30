@@ -525,10 +525,10 @@ ALSO OUTSTANDING
 
     # real Tello, PROPS OFF, nothing flies
     venv/bin/python Drone/Tests/tello_dng02_test.py --mode calibrate --seconds 90 \
-        --log Drone/Tests/dng02_calibrateN.log
+        --log Drone/flight_logs/dng02_calibrateN.log
     venv/bin/python Drone/Tests/tello_dng02_test.py --mode pan --seconds 90 \
-        --log Drone/Tests/dng02_panN.log
-    venv/bin/python Drone/Tests/tello_dng02_test.py --analyze Drone/Tests/dng02_panN.log
+        --log Drone/flight_logs/dng02_panN.log
+    venv/bin/python Drone/Tests/tello_dng02_test.py --analyze Drone/flight_logs/dng02_panN.log
 
 Environments: the brian2 conda env has brian2 + pandas + pyarrow and runs the
 network; the project venv has opencv + numpy + pybullet + djitellopy and runs
@@ -566,12 +566,12 @@ NOT TOUCHED
   safety_layer.py, main.py, Simulator/pybullet_*, Simulator/*
 
 LOGS FROM THIS SESSION
-  Drone/Tests/dng02_pan.log            run 1, contaminated baseline, pre-headroom-fix
-  Drone/Tests/dng02_calibrate.log      run 1, found the yaw sign (slope -86.6)
-  Drone/Tests/dng02_calibrate2.log     crashed run, empty, keep only as a record
-  Drone/Tests/dng02_calibrate3.log     run 2, CONFIRMED the fix (slope positive)
-  Drone/Tests/dng02_pan2.log           run 2, clean baseline, rho -0.876
-  Drone/Tests/neuron_yawfix.log        rotation-vs-escape, inconclusive (see 6.5)
+  Drone/flight_logs/dng02_pan.log            run 1, contaminated baseline, pre-headroom-fix
+  Drone/flight_logs/dng02_calibrate.log      run 1, found the yaw sign (slope -86.6)
+  Drone/flight_logs/dng02_calibrate2.log     crashed run, empty, keep only as a record
+  Drone/flight_logs/dng02_calibrate3.log     run 2, CONFIRMED the fix (slope positive)
+  Drone/flight_logs/dng02_pan2.log           run 2, clean baseline, rho -0.876
+  Drone/flight_logs/neuron_yawfix.log        rotation-vs-escape, inconclusive (see 6.5)
 
 
 --------------------------------------------------------------------------------

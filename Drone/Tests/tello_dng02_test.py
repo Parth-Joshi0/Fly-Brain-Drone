@@ -63,7 +63,7 @@ whichever env has brian2 - see NeuralPathways/flybrain_controller.py):
                     NeuralPathways/EscapeNeuron/optical_flow uses). Set this to what --mode
                     calibrate measured, then re-run --mode pan.
     --no-video      headless; disables the HUD and the marking keys
-    --log PATH      default Drone/Tests/tello_dng02_test.log
+    --log PATH      default Drone/flight_logs/tello_dng02_test.log
 
 Afterwards, score the run instead of trusting your eyes on the HUD:
 
@@ -464,7 +464,7 @@ def analyse(path):
     if not Path(path).is_file():
         print(f"no such log: {path}\n"
               f"Pass the path explicitly, or run the test first - it writes "
-              f"{Path(__file__).with_suffix('.log')} by default.")
+              f"{ROOT / 'Drone' / 'flight_logs' / Path(__file__).with_suffix('.log').name} by default.")
         return 1
     meta, ladder, rows = parse_log(path)
     live = [r for r in rows if r.get("phase") == "live"]
@@ -677,7 +677,7 @@ def main():
     parser.add_argument("--ppr", type=float, default=_PIXELS_PER_RADIAN,
                         help="pixels per radian for derotation; run --mode calibrate first")
     parser.add_argument("--no-video", action="store_true")
-    parser.add_argument("--log", default=str(Path(__file__).with_suffix(".log")))
+    parser.add_argument("--log", default=str(ROOT / "Drone" / "flight_logs" / Path(__file__).with_suffix(".log").name))
     parser.add_argument("--analyze", metavar="PATH", nargs="?", const="",
                         help="score a log written by an earlier run and exit; "
                              "no drone, no brain. Defaults to --log's path.")

@@ -34,7 +34,7 @@ NeuralPathways/flybrain_controller.py):
     --baseline N         quiet phase length before it (default 10)
     --fov DEG            camera VERTICAL fov (default 55.6, see below)
     --no-video           headless; disables swat marking (needs the window)
-    --log PATH           where to write (default Drone/Tests/tello_neuron_test.log)
+    --log PATH           where to write (default Drone/flight_logs/tello_neuron_test.log)
 
 While the live phase runs: press SPACE the instant you swat, Q to stop
 early. The SPACE markers are the most valuable thing in the log - they
@@ -381,7 +381,7 @@ def main():
                              f"derived from the {TELLO_DIAGONAL_FOV} diagonal spec at 4:3)")
     parser.add_argument("--no-video", action="store_true",
                         help="headless; disables SPACE swat marking")
-    parser.add_argument("--log", default=str(Path(__file__).with_suffix(".log")))
+    parser.add_argument("--log", default=str(ROOT / "Drone" / "flight_logs" / Path(__file__).with_suffix(".log").name))
     args = parser.parse_args()
 
     log = Logger(args.log)

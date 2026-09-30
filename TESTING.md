@@ -138,7 +138,7 @@ The log records `brain_interpreter` and `FLYBRAIN_PYTHON` in its header and prin
 
 It runs in three phases: a discarded warm-up while the exposure settles, a **baseline** phase of nothing happening (this measures the noise floor), then the **live** phase. During live, press SPACE the instant you swat and Q to stop. The SPACE markers are the most valuable thing in the log — they give ground truth to line the neuron response up against, so a count of DNp01 firings can be scored as hits vs false positives instead of guessed at.
 
-Everything lands in one self-contained plain-text log (`Drone/Tests/tello_neuron_test.log`): a metadata header with every constant in effect, tab-separated per-cycle rows, the swat markers, and a summary. It can be handed over offline, which matters because reaching the Tello means joining its wifi and losing internet.
+Everything lands in one self-contained plain-text log (`Drone/flight_logs/tello_neuron_test.log`): a metadata header with every constant in effect, tab-separated per-cycle rows, the swat markers, and a summary. It can be handed over offline, which matters because reaching the Tello means joining its wifi and losing internet.
 
 **Two things to do beforehand:**
 
