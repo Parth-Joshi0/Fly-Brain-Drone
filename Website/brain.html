@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly-Brain Neural Pathways</title>
+<meta name="description" content="How FuityFly wires a 274-neuron looming-escape circuit from the FlyWire connectome to a drone.">
+<meta property="og:title" content="FuityFly · Fly-Brain Neural Pathways">
+<meta property="og:description" content="LC4/LPLC2 → DNp01/DNp03/DNp06: a real connectome circuit simulated with Brian2 and read out as drone commands.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<div id="site-nav"></div>
+
+<main class="page">
+  <header class="hero">
+    <p class="eyebrow">Part 02 · Neural pathways</p>
+    <h1>Wiring a fly's escape circuit into a drone</h1>
+    <p class="lede">We cut a 274-neuron looming-escape circuit out of the FlyWire connectome, simulated it as spiking neurons in real time, and read its descending neurons out as flight commands.</p>
+    <div class="byline">
+      <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
+      <span class="meta">fly_brain_controller.py · controllers/flybrain_controller.py</span>
+    </div>
+  </header>
+
+  <aside class="toc" id="toc"></aside>
+
+  <section id="why-slice">
+    <h2><span class="sec">2.1</span>Why a slice, not the whole brain?</h2>
+    <p>The whole-brain model of Shiu et al.<sup class="fn"><a href="#ref-shiu">[1]</a></sup> covers roughly 130k neurons. It is built for offline experiments: its batch runner simulates 30 one-second trials and takes minutes. A drone needs an answer to "what should I do about the last 20 ms?" about 30 times a second.</p>
+    <p>So instead we build <strong>one small Brian2 network once</strong>, using only the real synapses among a chosen set of neurons, and keep advancing that live network in 20 ms windows. The LIF equations and constants are identical to the full model. What changes is scope: a narrow but genuine slice of the connectome, not a hand-built toy.</p>
+  </section>
+
+  <section id="circuit">
+    <h2><span class="sec">2.2</span>The circuit</h2>
+    <p>We chose cell types with well-documented roles in looming detection and escape. We found their FlyWire root IDs through <code>flyconnectome/flywire_annotations</code> and cross-checked them against the v630 completeness list in the repo.</p>
+
+    <figure>
+      <div class="fig-body">
+        <svg class="dg" viewBox="0 0 900 360" role="img" aria-label="Circuit: left and right LC4 and LPLC2 neurons project ipsilaterally to DNp01, DNp03 and DNp06 on each side">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-strong"/></marker>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-strong"/></marker>
+          </defs>
+          <text x="95" y="24" text-anchor="middle" class="t-sm">VISUAL INPUT</text>
+          <text x="450" y="24" text-anchor="middle" class="t-sm">DESCENDING NEURONS</text>
+          <text x="790" y="24" text-anchor="middle" class="t-sm">READOUT</text>
+
+          <!-- left hemisphere -->
+          <text x="20" y="58" class="t-sm">LEFT EYE</text>
+          <rect class="box-soft" x="20" y="68" width="150" height="46" rx="5"/>
+          <text x="95" y="89" text-anchor="middle" font-size="13">LC4 · L</text>
+          <text x="95" y="105" text-anchor="middle" class="t-sm">47 neurons</text>
+          <rect class="box-soft" x="20" y="124" width="150" height="46" rx="5"/>
+          <text x="95" y="145" text-anchor="middle" font-size="13">LPLC2 · L</text>
+          <text x="95" y="161" text-anchor="middle" class="t-sm">89 neurons</text>
+
+          <!-- right hemisphere -->
+          <text x="20" y="208" class="t-sm">RIGHT EYE</text>
+          <rect class="box-soft" x="20" y="218" width="150" height="46" rx="5"/>
+          <text x="95" y="239" text-anchor="middle" font-size="13">LC4 · R</text>
+          <text x="95" y="255" text-anchor="middle" class="t-sm">45 neurons</text>
+          <rect class="box-soft" x="20" y="274" width="150" height="46" rx="5"/>
+          <text x="95" y="295" text-anchor="middle" font-size="13">LPLC2 · R</text>
+          <text x="95" y="311" text-anchor="middle" class="t-sm">87 neurons</text>
+
+          <!-- DNs left -->
+          <rect class="box" x="380" y="50" width="140" height="34" rx="5"/><text x="450" y="72" text-anchor="middle" font-size="13">DNp01 · L</text>
+          <rect class="box" x="380" y="94" width="140" height="34" rx="5"/><text x="450" y="116" text-anchor="middle" font-size="13">DNp03 · L</text>
+          <rect class="box" x="380" y="138" width="140" height="34" rx="5"/><text x="450" y="160" text-anchor="middle" font-size="13">DNp06 · L</text>
+          <!-- DNs right -->
+          <rect class="box" x="380" y="206" width="140" height="34" rx="5"/><text x="450" y="228" text-anchor="middle" font-size="13">DNp01 · R</text>
+          <rect class="box" x="380" y="250" width="140" height="34" rx="5"/><text x="450" y="272" text-anchor="middle" font-size="13">DNp03 · R</text>
+          <rect class="box" x="380" y="294" width="140" height="34" rx="5"/><text x="450" y="316" text-anchor="middle" font-size="13">DNp06 · R</text>
+
+          <!-- ipsilateral projections -->
+          <path class="ln-strong" d="M170 118C270 118 280 67 376 67" marker-end="url(#a1)"/>
+          <path class="ln-strong" d="M170 118C270 118 280 111 376 111" marker-end="url(#a1)"/>
+          <path class="ln-strong" d="M170 118C270 118 280 155 376 155" marker-end="url(#a1)"/>
+          <path class="ln-strong" d="M170 268C270 268 280 223 376 223" marker-end="url(#a1)"/>
+          <path class="ln-strong" d="M170 268C270 268 280 267 376 267" marker-end="url(#a1)"/>
+          <path class="ln-strong" d="M170 268C270 268 280 311 376 311" marker-end="url(#a1)"/>
+          <path class="ln" d="M170 91H190V145H170M190 118H170"/>
+          <path class="ln" d="M170 241H190V297H170M190 268H170"/>
+          <text x="275" y="192" text-anchor="middle" class="t-sm">7,973 connections</text>
+          <text x="275" y="206" text-anchor="middle" class="t-sm">(all ipsilateral)</text>
+
+          <!-- readouts -->
+          <rect class="box-strong" x="700" y="56" width="180" height="56" rx="5"/>
+          <text x="790" y="80" text-anchor="middle" font-size="13" font-weight="600">escape</text>
+          <text x="790" y="98" text-anchor="middle" class="t-sm">DNp01 L + R</text>
+          <rect class="box-strong" x="700" y="148" width="180" height="56" rx="5"/>
+          <text x="790" y="172" text-anchor="middle" font-size="13" font-weight="600">yaw</text>
+          <text x="790" y="190" text-anchor="middle" class="t-sm">DNp06 R − DNp06 L</text>
+          <rect class="box-strong" x="700" y="240" width="180" height="56" rx="5"/>
+          <text x="790" y="264" text-anchor="middle" font-size="13" font-weight="600">forward</text>
+          <text x="790" y="282" text-anchor="middle" class="t-sm">1 − (DNp03 + DNp06)</text>
+
+          <path class="ln-strong" d="M520 67C610 67 610 84 696 84" marker-end="url(#a2)"/>
+          <path class="ln-strong" d="M520 223C610 223 610 84 696 84" marker-end="url(#a2)"/>
+          <path class="ln-strong" d="M520 155C610 155 610 176 696 176" marker-end="url(#a2)"/>
+          <path class="ln-strong" d="M520 311C610 311 610 176 696 176" marker-end="url(#a2)"/>
+          <path class="ln-strong dash" d="M520 111C610 111 610 268 696 268" marker-end="url(#a2)"/>
+          <path class="ln-strong dash" d="M520 267C610 267 610 268 696 268" marker-end="url(#a2)"/>
+        </svg>
+      </div>
+      <figcaption><b>Fig. 1</b>The 274-neuron looming circuit: 268 visual projection neurons and 6 descending neurons, with connectivity taken directly from FlyWire v630. The dashed readout lines show that DNp03 feeds only the <em>forward</em> signal; DNp06 also contributes to <em>forward</em> (not drawn).</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Cell type</th><th>Role</th><th class="num">Left</th><th class="num">Right</th></tr></thead>
+        <tbody>
+          <tr><td><code>LC4</code></td><td>Looming-sensitive visual projection neuron, feeds the giant-fibre escape pathway</td><td class="num">47</td><td class="num">45</td></tr>
+          <tr><td><code>LPLC2</code></td><td>Looming-sensitive visual projection neuron, tuned to expanding edges</td><td class="num">89</td><td class="num">87</td></tr>
+          <tr><td><code>DNp01</code></td><td>The <strong>Giant Fiber</strong>, the fly's escape-jump command neuron</td><td class="num">1</td><td class="num">1</td></tr>
+          <tr><td><code>DNp03</code></td><td>Receives LC4 looming input and projects to flight-steering motor neurons</td><td class="num">1</td><td class="num">1</td></tr>
+          <tr><td><code>DNp06</code></td><td>Drives evasive flight turns from LPLC2 input<sup class="fn"><a href="#ref-turns">[4]</a></sup></td><td class="num">1</td><td class="num">1</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="2">Total</td><td class="num">137</td><td class="num">137</td></tr></tfoot>
+      </table>
+    </div>
+
+    <div class="note">
+      <p><strong>Checked, not assumed.</strong> We checked the synapse data directly: every direct LC4/LPLC2 → DN synapse in this circuit is <strong>ipsilateral</strong>, so right-eye looming drives right-side DNs. DNp06 turns the fly <em>away</em> from a threat, so stronger <strong>right</strong> DNp06 activity must produce a <strong>left</strong> turn. The yaw readout's sign is built to match that.</p>
+    </div>
+  </section>
+
+  <section id="lif">
+    <h2><span class="sec">2.3</span>Neuron model</h2>
+    <p>Every neuron is a leaky integrate-and-fire unit with a conductance-like synaptic variable \(g\). These are the same equations as the whole-brain model<sup class="fn"><a href="#ref-shiu">[1]</a></sup>, run in Brian2<sup class="fn"><a href="#ref-brian">[3]</a></sup>:</p>
+    <div class="eq">$$\frac{dv}{dt} = \frac{V_0 - v + g}{\tau_m}, \qquad \frac{dg}{dt} = -\frac{g}{\tau}$$<span class="eq-num">(1)</span></div>
+    <p>When \(v > V_{th}\) the neuron spikes: \(v \leftarrow V_{rst}\), \(g \leftarrow 0\), and it stays refractory for \(t_{rfc}\). After a delay \(t_{dly}\), each spike adds a signed weight to the postsynaptic neuron:</p>
+    <div class="eq">$$g_j \leftarrow g_j + W_{syn}\cdot w_{ij}$$<span class="eq-num">(2)</span></div>
+    <p>Here \(w_{ij}\) is FlyWire's <em>Excitatory × Connectivity</em> value for the pair: the synapse count, signed by the presynaptic neurotransmitter.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Parameter</th><th>Symbol</th><th class="num">Value</th></tr></thead>
+        <tbody>
+          <tr><td>Resting potential</td><td>\(V_0\)</td><td class="num">−52 mV</td></tr>
+          <tr><td>Reset potential</td><td>\(V_{rst}\)</td><td class="num">−52 mV</td></tr>
+          <tr><td>Spike threshold</td><td>\(V_{th}\)</td><td class="num">−45 mV</td></tr>
+          <tr><td>Membrane time constant</td><td>\(\tau_m\)</td><td class="num">20 ms</td></tr>
+          <tr><td>Synaptic time constant</td><td>\(\tau\)</td><td class="num">5 ms</td></tr>
+          <tr><td>Refractory period</td><td>\(t_{rfc}\)</td><td class="num">2.2 ms</td></tr>
+          <tr><td>Synaptic delay</td><td>\(t_{dly}\)</td><td class="num">1.8 ms</td></tr>
+          <tr><td>Weight per synapse</td><td>\(W_{syn}\)</td><td class="num">0.275 mV</td></tr>
+          <tr><td>Poisson scaling</td><td>\(F_{poi}\)</td><td class="num">250</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="input">
+    <h2><span class="sec">2.4</span>From pixels to spikes</h2>
+    <p>The fly's LC4 and LPLC2 neurons respond to images that <em>expand</em>, the visual signature of something on a collision course. We compute the same quantity from the drone's camera:</p>
+    <ol>
+      <li><strong>Dense optic flow</strong> (Farnebäck) between consecutive frames.</li>
+      <li><strong>Rotation removal:</strong> the drone's known change in orientation is undone with a homography, so turning is not mistaken for looming.</li>
+      <li><strong>Expansion</strong> is measured as flow divergence in the left, centre and right columns of the image, then median-filtered and smoothed. For an approaching object, expansion \(E \approx 2/\text{TTC}\), where TTC is time-to-contact.</li>
+    </ol>
+    <p>Expansion becomes a loom strength in \([0, 1]\) for each eye. A centred threat feeds both eyes: \(E_L = \max(E_{left}, E_{centre})\), and likewise for the right.</p>
+    <div class="eq">$$\text{loom} = \operatorname{clip}\!\left(\frac{E - E_{floor}}{2.0},\ 0,\ 1\right), \qquad r_{poi} = \text{loom}\cdot 30\,\text{Hz}$$<span class="eq-num">(3)</span></div>
+    <p>\(E_{floor}\) starts at 0.8 s⁻¹ and rises with forward speed and recent rotation. This works like an efference copy: the ground ahead really does expand during forward flight, and optic-flow error grows during fast turns. Each of the 268 input neurons gets its own independent Poisson spike train at rate \(r_{poi}\), and each Poisson spike kicks the membrane by \(W_{syn}F_{poi} = 68.75\) mV, which is individually suprathreshold.</p>
+    <div class="note">
+      <p><strong>Design decision · 30 Hz, not 150–250 Hz.</strong> The whole-brain model's default Poisson rate is 150–250 Hz. At that drive, 268 inputs converging on 6 outputs saturated the escape signal past 0.4 from ordinary cruising flow alone (loom ≈ 0.05). We swept 10, 20, 30 and 50 Hz and chose <strong>30 Hz</strong>, so the circuit stays quiet while cruising and engages only at danger-level flow.</p>
+    </div>
+  </section>
+
+  <section id="readout">
+    <h2><span class="sec">2.5</span>From spikes to commands</h2>
+    <p>Each step simulates 20 ms of brain time. A single real neuron fires only 0–4 times in that window, which would make a jumpy 0/50/100/150 Hz staircase. So spike counts are converted to rates and smoothed with an exponential moving average (\(\alpha = 0.25\)). Three signals are then read out:</p>
+    <div class="eq">$$\text{escape} = \min\!\left(1,\ \frac{r_{01}^{L} + r_{01}^{R}}{2\cdot 42}\right)$$<span class="eq-num">(4)</span></div>
+    <div class="eq">$$\text{yaw} = \operatorname{clip}\!\left(\frac{r_{06}^{R} - r_{06}^{L}}{60},\ -1,\ 1\right)$$<span class="eq-num">(5)</span></div>
+    <div class="eq">$$\text{forward} = \max\!\left(0,\ 1 - \frac{r_{03}^{L} + r_{03}^{R} + r_{06}^{L} + r_{06}^{R}}{2\cdot 30}\right)$$<span class="eq-num">(6)</span></div>
+    <p>Positive yaw means turn left, following the project's convention. The code is a direct transcription:</p>
+    <div class="code">
+      <div class="code-head">fly_brain_controller.py · step()</div>
+<pre><code>escape_rate = rate_of("DNp01", "left") + rate_of("DNp01", "right")
+escape = min(1.0, escape_rate / (2 * ESCAPE_SAT_HZ))
+
+yaw_rate = rate_of("DNp06", "right") - rate_of("DNp06", "left")
+yaw = max(-1.0, min(1.0, yaw_rate / YAW_SAT_HZ))
+
+forward_drive = rate_of("DNp03", "left") + rate_of("DNp03", "right") \
+    + rate_of("DNp06", "left") + rate_of("DNp06", "right")
+forward = max(0.0, 1.0 - forward_drive / (2 * FORWARD_SAT_HZ))</code></pre>
+    </div>
+    <p>The controller then picks a state. If escape ≥ 0.6 it triggers <strong>ESCAPE</strong>. Otherwise, if |yaw| &gt; 0.05, it enters <strong>AVOID_LEFT</strong> or <strong>AVOID_RIGHT</strong>. Otherwise it stays in <strong>CRUISE</strong>. Outside ESCAPE, the command is:</p>
+    <div class="eq">$$v_{fwd} = 1.0\,\tfrac{\text{m}}{\text{s}}\cdot\text{forward}\cdot(1-\text{escape}), \qquad \omega_{yaw} = 0.9\,\tfrac{\text{rad}}{\text{s}}\cdot\text{yaw}$$<span class="eq-num">(7)</span></div>
+  </section>
+
+  <section id="escape">
+    <h2><span class="sec">2.6</span>The escape program</h2>
+    <p>A real Giant Fiber jump is a committed, fixed motor program. It is not re-decided every millisecond, and our escape works the same way:</p>
+    <figure>
+      <div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 190" role="img" aria-label="Escape timeline">
+          <path class="ln" d="M40 150H680"/>
+          <text x="40" y="172" class="t-sm">t</text>
+          <rect class="box-soft" x="40" y="110" width="140" height="30" rx="4"/><text x="110" y="130" text-anchor="middle" font-size="12">CRUISE</text>
+          <path class="ln-strong" d="M180 140C230 140 240 60 270 50"/><text x="225" y="44" text-anchor="middle" class="t-sm">expansion ↑</text>
+          <path class="ln-strong" d="M270 150V30"/><text x="270" y="22" text-anchor="middle" class="t-sm">escape ≥ 0.6</text><circle cx="270" cy="75" r="5" class="fill-strong"/>
+          <rect class="box-strong" x="275" y="110" width="200" height="30" rx="4"/><text x="375" y="130" text-anchor="middle" font-size="12">ESCAPE · 30 cycles</text>
+          <rect class="box" x="480" y="110" width="200" height="30" rx="4"/><text x="580" y="130" text-anchor="middle" font-size="12">refractory · 30 cycles</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig. 2</b>Anatomy of one escape.</figcaption>
+    </figure>
+    <ol>
+      <li><strong>Cruise.</strong> Flow expansion sits below the floor, so loom ≈ 0 and the circuit is quiet.</li>
+      <li><strong>Approach.</strong> An object's expansion (≈ 2/TTC) rises above the floor and the Poisson drive onto LC4/LPLC2 increases.</li>
+      <li><strong>Trigger.</strong> Activity propagates through the real synapses, DNp01 fires, and escape crosses 0.6.</li>
+      <li><strong>Escape.</strong> The drone commits for 30 cycles (≈ 1 s at 30 Hz): a 2.0 m/s sideways strafe plus a 2.0 m/s back-off, pushing about 0.4 m each way before braking.</li>
+      <li><strong>Refractory.</strong> A 30-cycle cooldown follows, so one threat cannot retrigger a string of dodges.</li>
+    </ol>
+    <p>Dodge direction comes from the DNp06 yaw sign when |yaw| ≥ 0.3. Otherwise the drone dodges toward the side with less optic flow, and on a tie it alternates.</p>
+    <div class="note">
+      <p><strong>Why back away too?.</strong> Sideways alone was too slow for the simulated drone: about 1 s to move 0.6 m. In development runs it was hit by a second box in 3 of 3 trials. Adding a backward component brought that to 0 of 3. Raising the back-off speed from 1.0 to 2.0 m/s increased miss distance from 0.12 m to 0.42 m. Pitch and roll saturate independently, so backing off costs no sideways speed.</p>
+    </div>
+  </section>
+
+  <section id="runtime">
+    <h2><span class="sec">2.7</span>Runtime architecture</h2>
+    <p>Brian2 is deliberately kept out of the main Python environment: the physics and flight code has no business linking against a spiking simulator. The brain runs as a <strong>persistent subprocess</strong> in its own conda environment, and the controller exchanges one JSON line per decision over stdin/stdout:</p>
+    <div class="code">
+      <div class="code-head">stdin / stdout · JSON lines</div>
+<pre><code><span class="c">// controller → brain</span>
+{"loom_left": 0.12, "loom_right": 0.47}
+<span class="c">// brain → controller</span>
+{"yaw": ..., "forward": ..., "escape": ..., "spike_counts": {"DNp01_left": ..., ...}}</code></pre>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>20 ms</b><span>brain time per step</span></div>
+      <div class="stat"><b>~20 ms</b><span>measured wall time per step (conda env)</span></div>
+      <div class="stat"><b>33 ms</b><span>budget at a 30 Hz decision loop</span></div>
+    </div>
+    <p class="small muted">A stray non-conda Brian2 install measured 47 ms per step, over budget. Source: <code>Testing/README.md</code>.</p>
+  </section>
+
+  <section id="flight">
+    <h2><span class="sec">2.8</span>Real-flight evidence</h2>
+    <p>In a 60-second autonomous flight on the physical Tello (74% battery at takeoff, 1,560 processed frames), the controller recorded 19 escape events. Dodges alternated left and right, and expansion readings spanned 0.1–5.7 s⁻¹. Frames per decision state:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>State</th><th class="num">Frames</th></tr></thead>
+        <tbody>
+          <tr><td><code>CRUISE</code></td><td class="num">544</td></tr>
+          <tr><td><code>ESCAPE</code></td><td class="num">570</td></tr>
+          <tr><td><code>AVOID_LEFT</code></td><td class="num">266</td></tr>
+          <tr><td><code>AVOID_RIGHT</code></td><td class="num">108</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted">Source: <code>Testing/tello_escape_flight_test.log</code>. Escapes were triggered by hand swats with no ground-truth scoring, so treat this as evidence that the loop works on hardware, not as an accuracy figure.</p>
+  </section>
+
+  <section id="caveats">
+    <h2><span class="sec">2.9</span>Caveats</h2>
+    <ul>
+      <li>The saturation constants (42 / 60 / 30 Hz), the 30 Hz Poisson ceiling and the loom floor are <strong>hand-tuned engineering choices</strong>, not physiological constants.</li>
+      <li>"Escape" is read as an evasive manoeuvre, not a literal jump-takeoff.</li>
+      <li>Boundary return and stuck detection are handled by conventional code outside the brain.</li>
+      <li>274 of roughly 130k neurons: the circuit has no recurrent context from the rest of the brain.</li>
+    </ul>
+  </section>
+
+  <section id="references">
+    <h2><span class="sec">R</span>References</h2>
+    <ol class="refs">
+      <li id="ref-shiu">Shiu, P. K. et al. <em>A leaky integrate-and-fire computational model based on the connectome of the entire adult Drosophila brain reveals insights into sensorimotor processing.</em> bioRxiv (2023). <a href="https://www.biorxiv.org/content/10.1101/2023.05.02.539144v1">doi:10.1101/2023.05.02.539144</a></li>
+      <li id="ref-flywire">Dorkenwald, S. et al. <em>Neuronal wiring diagram of an adult brain.</em> Nature (2024). <a href="https://flywire.ai">flywire.ai</a></li>
+      <li id="ref-brian">Stimberg, M., Brette, R. &amp; Goodman, D. F. M. <em>Brian 2, an intuitive and efficient neural simulator.</em> eLife (2019).</li>
+      <li id="ref-turns"><em>A visuomotor circuit for evasive flight turns in Drosophila.</em> Current Biology (2022).</li>
+      <li id="ref-farneback">Farnebäck, G. <em>Two-frame motion estimation based on polynomial expansion.</em> SCIA (2003).</li>
+    </ol>
+  </section>
+</main>
+
+<div id="site-footer"></div>
+</body>
+</html>

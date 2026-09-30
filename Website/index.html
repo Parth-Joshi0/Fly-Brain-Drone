@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FuityFly Whitepaper</title>
+<meta name="description" content="FuityFly: a DJI Tello drone steered by a spiking model of the fruit fly connectome.">
+<meta property="og:title" content="FuityFly: A Connectome-Driven Drone">
+<meta property="og:description" content="A DJI Tello drone steered by a leaky integrate-and-fire model built from the FlyWire Drosophila connectome.">
+<meta property="og:type" content="article">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<div id="site-nav"></div>
+
+<main class="page">
+  <header class="hero">
+    <p class="eyebrow">Whitepaper · Overview</p>
+    <h1>FuityFly: flying a drone with a fruit fly's brain</h1>
+    <p class="lede">We took the wiring diagram of a real <em>Drosophila</em> brain, simulated the neurons a fly uses to escape an approaching threat, and gave them control of a DJI Tello quadcopter.</p>
+    <div class="byline">
+      <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
+      <span class="meta">September 2026</span>
+    </div>
+    <div class="links">
+      <a href="https://github.com/Parth-Joshi0/Fly-Brain-Rover">Source code</a>
+      <a href="brain.html">Neural circuit</a>
+      <a href="#results">Flight results</a>
+    </div>
+  </header>
+
+  <aside class="toc" id="toc"></aside>
+
+  <section id="motivation">
+    <h2><span class="sec">1</span>Motivation</h2>
+    <p>In 2023, the FlyWire consortium finished mapping every neuron and synapse in an adult fruit fly brain<sup class="fn"><a href="#ref-flywire">[2]</a></sup>. Shortly after, Shiu et al. showed that a simple leaky integrate-and-fire (LIF) model built directly from that wiring diagram could predict real sensorimotor behaviour, with no training involved<sup class="fn"><a href="#ref-shiu">[1]</a></sup>.</p>
+    <p>That raised a question we wanted to answer with hardware: <strong>can connectome-derived circuits act as the controller for a real robot?</strong> Drones are a natural fit. A fruit fly is itself a small, fast flyer, and one of its best-studied reflexes is escaping objects that loom towards it.</p>
+    <p>FuityFly is our answer. It is not a neural network we trained to fly. The circuit that decides when to dodge is a slice of the real connectome: 274 identified neurons connected by the synapses FlyWire recorded between them.</p>
+    <div class="note">
+      <p><strong>Key idea.</strong> No weights were learned. Connectivity comes from the connectome, and neuron dynamics come from the published LIF model. Our engineering work was the interface around the circuit: turning camera frames into the input the fly's visual neurons expect, and turning descending-neuron spikes into drone commands.</p>
+    </div>
+  </section>
+
+  <section id="system">
+    <h2><span class="sec">2</span>System architecture</h2>
+    <p>The same pipeline runs in simulation and on the real drone. Only the bottom layer, the drone interface, changes.</p>
+
+    <figure>
+      <div class="fig-body">
+        <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Pipeline from camera through looming detection, fly brain, safety layer, to drone interface">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker>
+          </defs>
+          <!-- stages -->
+          <rect class="box" x="10" y="60" width="140" height="70" rx="6"/>
+          <text x="80" y="92" text-anchor="middle" font-size="14">Camera</text>
+          <text x="80" y="112" text-anchor="middle" class="t-sm">320×240 frames</text>
+
+          <rect class="box" x="190" y="60" width="160" height="70" rx="6"/>
+          <text x="270" y="92" text-anchor="middle" font-size="14">Optic flow</text>
+          <text x="270" y="112" text-anchor="middle" class="t-sm">looming L / C / R</text>
+
+          <rect class="box-strong" x="390" y="45" width="170" height="100" rx="6"/>
+          <text x="475" y="80" text-anchor="middle" font-size="14" font-weight="600">Fly brain</text>
+          <text x="475" y="100" text-anchor="middle" class="t-sm">Brian2 LIF · 274 neurons</text>
+          <text x="475" y="118" text-anchor="middle" class="t-sm">FlyWire v630</text>
+
+          <rect class="box" x="600" y="60" width="130" height="70" rx="6"/>
+          <text x="665" y="92" text-anchor="middle" font-size="14">Safety layer</text>
+          <text x="665" y="112" text-anchor="middle" class="t-sm">bounds · limits</text>
+
+          <path class="ln" d="M150 95H186" marker-end="url(#arr)"/>
+          <path class="ln" d="M350 95H386" marker-end="url(#arr)"/>
+          <path class="ln" d="M560 95H596" marker-end="url(#arr)"/>
+          <path class="ln" d="M730 95H770V60H790M770 95V170H790" />
+          <path class="ln" d="M770 60H796" marker-end="url(#arr)"/>
+          <path class="ln" d="M770 170H796" marker-end="url(#arr)"/>
+
+          <rect class="box-soft" x="800" y="35" width="92" height="50" rx="6"/>
+          <text x="846" y="58" text-anchor="middle" font-size="12.5">PyBullet</text>
+          <text x="846" y="75" text-anchor="middle" class="t-sm">sim</text>
+          <rect class="box-soft" x="800" y="145" width="92" height="50" rx="6"/>
+          <text x="846" y="168" text-anchor="middle" font-size="12.5">DJI Tello</text>
+          <text x="846" y="185" text-anchor="middle" class="t-sm">djitellopy</text>
+
+          <!-- feedback -->
+          <path class="ln dash" d="M846 195V230H80V134" marker-end="url(#arr)"/>
+          <text x="460" y="224" text-anchor="middle" class="t-sm">next frame (30 Hz decision loop)</text>
+          <text x="475" y="30" text-anchor="middle" class="t-sm">DNp01 → escape · DNp06 → yaw · DNp03 → forward</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig. 1</b>The FuityFly control loop. The <code>DroneInterface</code> abstraction means the brain, vision and safety code are the same whether commands reach the PyBullet simulator or the real Tello.</figcaption>
+    </figure>
+
+    <ol>
+      <li><strong>Vision.</strong> Dense optic flow turns each frame into how fast the image is expanding in the left, centre and right of view. Expansion is roughly 2 divided by time-to-contact.</li>
+      <li><strong>Brain.</strong> Expansion drives Poisson spike input into 268 looming-sensitive visual projection neurons (LC4, LPLC2). The circuit is simulated for 20 ms per decision.</li>
+      <li><strong>Readout.</strong> Firing rates of six descending neurons become three signals: <em>escape</em>, <em>yaw</em> and <em>forward</em>.</li>
+      <li><strong>Action.</strong> A controller turns those signals into CRUISE, AVOID or a committed ESCAPE manoeuvre. A safety layer enforces limits and boundaries before commands reach the drone.</li>
+    </ol>
+  </section>
+
+  <section id="behaviours">
+    <h2><span class="sec">3</span>Two behaviours</h2>
+    <div class="cards">
+      <div class="card">
+        <small>BEHAVIOUR A</small>
+        <h3>Looming escape</h3>
+        <p>When something approaches fast, the Giant Fiber pathway (DNp01) fires and the drone commits to a roughly 1 s sideways and backward dodge, as a fly jumps away from a swatter.</p>
+      </div>
+      <div class="card">
+        <small>BEHAVIOUR B</small>
+        <h3>Hunger &amp; feeding</h3>
+        <p>A custom vision model finds bananas and grades their ripeness. A "hunger" drive decays while a banana stays in view, and the drone hovers, "feeds", then lands.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="results">
+    <h2><span class="sec">4</span>Results so far</h2>
+    <p>Our most complete real-world test is a 60-second autonomous flight on the physical Tello with the fly-brain controller in the loop. Escapes were triggered by swatting at the drone by hand.</p>
+    <div class="stats">
+      <div class="stat"><b>274</b><span>connectome neurons simulated</span></div>
+      <div class="stat"><b>7,973</b><span>synaptic connections in the circuit</span></div>
+      <div class="stat"><b>19</b><span>escape events in a 60 s real flight</span></div>
+      <div class="stat"><b>20 ms</b><span>brain step, inside a 33 ms budget</span></div>
+    </div>
+    <p class="small muted">Source: <code>Testing/tello_escape_flight_test.log</code> (1,560 processed frames) and <code>Testing/README.md</code>. The swats were not scored against ground truth, so these show the controller running on hardware, not a benchmark.</p>
+  </section>
+
+  <section id="deep-dives">
+    <h2><span class="sec">5</span>Deep dives</h2>
+    <div class="cards">
+      <a class="card" href="banana.html">
+        <small>01</small>
+        <h3>Banana recognition network</h3>
+        <p>YOLOv8n detection and a MobileNetV2 ripeness classifier trained on 3,931 images across 6 classes.</p>
+      </a>
+      <a class="card" href="brain.html">
+        <small>02</small>
+        <h3>Fly-brain neural pathways</h3>
+        <p>The LC4/LPLC2 → DNp01/03/06 looming circuit, LIF dynamics, and how spikes become commands.</p>
+      </a>
+      <a class="card" href="sdk.html">
+        <small>03</small>
+        <h3>DJI Tello SDK integration</h3>
+        <p>djitellopy, RC control, the video pipeline, unit conversion, and the safety systems for real flight.</p>
+      </a>
+      <a class="card" href="sim.html">
+        <small>04</small>
+        <h3>PyBullet simulation</h3>
+        <p>A 240 Hz physics sandbox with a PID flight stack and an obstacle course, used to develop the brain safely.</p>
+      </a>
+    </div>
+  </section>
+
+  <section id="limitations">
+    <h2><span class="sec">6</span>Limitations &amp; future work</h2>
+    <ul>
+      <li><strong>Hand-tuned readout.</strong> The saturation constants that map spike rates to commands (42, 60 and 30 Hz) were tuned by hand, not derived from fly physiology.</li>
+      <li><strong>A slice of the brain, not the whole brain.</strong> We simulate a 274-neuron looming circuit, not the full connectome, to fit the real-time budget.</li>
+      <li><strong>No GPS or position sensing.</strong> On the Tello, position is dead-reckoned from commanded velocity.</li>
+      <li><strong>Evaluation.</strong> We have not yet run systematic, scored trials in simulation or on hardware. That is the next milestone.</li>
+      <li><strong>Separate behaviours.</strong> Hunger and feeding is currently a hand-written state machine rather than a connectome circuit.</li>
+    </ul>
+  </section>
+
+  <section id="team">
+    <h2><span class="sec">7</span>Team</h2>
+    <div class="authors">
+      <div class="author"><div class="author-name">Akshin Makkar</div><div class="author-role"><span class="todo">TODO: role</span></div></div>
+      <div class="author"><div class="author-name">Parth Joshi</div><div class="author-role"><span class="todo">TODO: role</span></div></div>
+      <div class="author"><div class="author-name">Amal Chalayil Sreekumar</div><div class="author-role"><span class="todo">TODO: role</span></div></div>
+    </div>
+  </section>
+
+  <section id="references">
+    <h2><span class="sec">R</span>References</h2>
+    <ol class="refs">
+      <li id="ref-shiu">Shiu, P. K. et al. <em>A leaky integrate-and-fire computational model based on the connectome of the entire adult Drosophila brain reveals insights into sensorimotor processing.</em> bioRxiv (2023). <a href="https://www.biorxiv.org/content/10.1101/2023.05.02.539144v1">doi:10.1101/2023.05.02.539144</a></li>
+      <li id="ref-flywire">Dorkenwald, S. et al. <em>Neuronal wiring diagram of an adult brain.</em> Nature (2024). <a href="https://flywire.ai">flywire.ai</a></li>
+      <li id="ref-brian">Stimberg, M., Brette, R. &amp; Goodman, D. F. M. <em>Brian 2, an intuitive and efficient neural simulator.</em> eLife (2019).</li>
+    </ol>
+  </section>
+</main>
+
+<div id="site-footer"></div>
+</body>
+</html>

@@ -1,0 +1,165 @@
+/* =========================================================
+   FuityFly whitepaper: shared styles
+   1. Tokens       4. Nav & footer     7. Diagrams (SVG)
+   2. Base         5. Hero
+   3. Layout       6. Content blocks
+   ========================================================= */
+
+/* ---------- 1. Tokens ---------- */
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f5f5f5;
+  --ink: #111111;
+  --ink-2: #444444;
+  --ink-3: #777777;
+  --rule: #e2e2e2;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --col: 720px;
+}
+
+/* ---------- 2. Base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.7 var(--sans); }
+
+h1, h2, h3, h4 { line-height: 1.25; letter-spacing: -.01em; }
+h2 { font-size: 26px; margin: 64px 0 16px; }
+h3 { font-size: 20px; margin: 36px 0 10px; }
+h4 { font-size: 16px; margin: 24px 0 8px; }
+p { margin: 0 0 18px; }
+ul, ol { padding-left: 22px; margin: 0 0 18px; }
+li { margin-bottom: 6px; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 48px 0; }
+a { color: var(--ink); text-underline-offset: 3px; }
+img, svg { max-width: 100%; height: auto; }
+code { font: .88em var(--mono); background: var(--bg-soft); padding: 1px 5px; border-radius: 3px; }
+kbd { font: .85em var(--mono); border: 1px solid var(--rule); border-radius: 3px; padding: 0 5px; }
+
+.sec { font: 500 .6em var(--mono); color: var(--ink-3); margin-right: 12px; vertical-align: middle; }
+.muted { color: var(--ink-3); }
+.small { font-size: 14px; }
+.todo { font: 600 12px var(--mono); background: var(--bg-soft); border: 1px dashed var(--ink-3); padding: 1px 6px; border-radius: 3px; }
+
+/* ---------- 3. Layout ---------- */
+.page {
+  max-width: 1160px; margin: 0 auto; padding: 0 16px;
+  display: grid; grid-template-columns: minmax(0, var(--col)) 200px;
+  justify-content: center; column-gap: 56px;
+}
+.page > * { grid-column: 1; min-width: 0; }
+.toc { grid-column: 2; grid-row: 2 / span 100; position: sticky; top: 88px; align-self: start; font-size: 13px; }
+.toc p { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin-bottom: 8px; }
+.toc ol { list-style: none; padding: 0; border-left: 1px solid var(--rule); }
+.toc a { display: block; padding: 3px 0 3px 12px; color: var(--ink-3); text-decoration: none; }
+.toc a:hover { color: var(--ink); }
+
+@media (max-width: 1000px) {
+  .page { display: block; max-width: calc(var(--col) + 32px); }
+  .toc { display: none; }
+}
+
+/* ---------- 4. Nav & footer ---------- */
+.nav { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--rule); }
+.nav-inner { max-width: 1160px; margin: 0 auto; padding: 0 16px; height: 56px; display: flex; align-items: center; gap: 24px; }
+.brand { font-weight: 700; text-decoration: none; margin-right: auto; }
+.nav-links { display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.nav-links li { margin: 0; }
+.nav-links a { color: var(--ink-3); text-decoration: none; }
+.nav-links a:hover, .nav-links a[aria-current="page"] { color: var(--ink); }
+.nav-links a[aria-current="page"] { font-weight: 600; }
+.menu-btn { display: none; background: none; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 10px; font: 14px var(--sans); cursor: pointer; }
+
+@media (max-width: 760px) {
+  .menu-btn { display: block; }
+  .nav-links { display: none; position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; gap: 0; background: var(--bg); border-bottom: 1px solid var(--rule); padding: 8px 16px; }
+  .nav-links.open { display: flex; }
+  .nav-links a { display: block; padding: 8px 0; }
+}
+
+.pager { display: flex; justify-content: space-between; gap: 16px; margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--rule); font-size: 15px; }
+.pager a { text-decoration: none; }
+.pager small { display: block; color: var(--ink-3); font-size: 12px; }
+.pager .next { margin-left: auto; text-align: right; }
+.site-footer { margin-top: 48px; border-top: 1px solid var(--rule); padding: 24px 16px 40px; text-align: center; font-size: 13px; color: var(--ink-3); }
+
+/* ---------- 5. Hero ---------- */
+.hero { padding: 56px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 32px; }
+.eyebrow { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); margin-bottom: 14px; }
+.hero h1 { font-size: clamp(30px, 5.5vw, 44px); margin: 0 0 16px; }
+.lede { font-size: 19px; color: var(--ink-2); }
+.byline { font-size: 14px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.byline .meta { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); }
+.links { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 14px; }
+
+/* ---------- 6. Content blocks ---------- */
+/* Figure: <figure><div class="fig-body">…</div><figcaption><b>Fig. n</b> …</figcaption></figure> */
+figure { margin: 32px 0; }
+.fig-body { border: 1px solid var(--rule); border-radius: 6px; padding: 20px; overflow-x: auto; }
+.fig-body svg { display: block; margin: 0 auto; }
+figcaption { font-size: 14px; color: var(--ink-3); margin-top: 8px; }
+figcaption b { color: var(--ink-2); margin-right: 4px; }
+
+/* Equation: <div class="eq">$$…$$<span class="eq-num">(n)</span></div> */
+.eq { position: relative; margin: 24px 0; overflow-x: auto; overflow-y: hidden; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 13px var(--mono); color: var(--ink-3); }
+
+/* Code: <div class="code"><div class="code-head">file</div><pre><code>…</code></pre></div> */
+.code { margin: 24px 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.code-head { padding: 6px 14px; border-bottom: 1px solid var(--rule); background: var(--bg-soft); font: 12px var(--mono); color: var(--ink-3); }
+.code pre { margin: 0; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.6 var(--mono); }
+.code pre code { background: none; padding: 0; font-size: inherit; }
+.code .c { color: var(--ink-3); }
+
+/* Table: <div class="table-wrap"><table>…</table></div> */
+.table-wrap { margin: 24px 0; overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 12px; font-weight: 600; color: var(--ink-3); background: var(--bg-soft); }
+tr:last-child td { border-bottom: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+tfoot td { font-weight: 600; }
+.bar { height: 10px; background: var(--ink-3); border-radius: 2px; }
+
+/* Note: <div class="note"><strong>Label.</strong> text</div> */
+.note { border-left: 3px solid var(--ink); background: var(--bg-soft); padding: 14px 18px; margin: 24px 0; font-size: 16px; }
+.note p:last-child { margin: 0; }
+
+/* Stats: <div class="stats"><div class="stat"><b>value</b><span>label</span></div></div> */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 28px 0; }
+.stat { border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; }
+.stat b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--ink-3); }
+
+/* Cards: <div class="cards"><a class="card">…</a></div> */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 24px 0; }
+.card { display: block; border: 1px solid var(--rule); border-radius: 6px; padding: 16px 18px; text-decoration: none; color: var(--ink); }
+.card small { font: 12px var(--mono); color: var(--ink-3); }
+.card h3 { font-size: 17px; margin: 6px 0; }
+.card p { font-size: 14.5px; color: var(--ink-2); margin: 0; }
+
+/* Authors: <div class="authors"><div class="author"><div class="author-name">…</div><div class="author-role">…</div></div></div> */
+.authors { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 24px 0; }
+.author { border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; }
+.author-name { font-weight: 600; }
+.author-role { font-size: 14px; color: var(--ink-3); margin-top: 4px; }
+
+sup.fn a { text-decoration: none; font-size: 11px; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; }
+.grid-2 figure { margin: 0; }
+.grid-2 img { display: block; width: 100%; image-rendering: pixelated; }
+
+.refs { font-size: 14.5px; color: var(--ink-2); }
+
+/* ---------- 7. Diagrams (inline SVG, class="dg") ---------- */
+.dg text { font-family: var(--mono); fill: var(--ink); }
+.dg .t-sm { font-size: 11px; fill: var(--ink-3); }
+.dg .box { fill: var(--bg); stroke: var(--ink-3); stroke-width: 1.2; }
+.dg .box-soft { fill: var(--bg-soft); stroke: var(--ink-3); stroke-width: 1.2; }
+.dg .box-strong { fill: var(--bg-soft); stroke: var(--ink); stroke-width: 2; }
+.dg .ln { stroke: var(--ink-3); stroke-width: 1.4; fill: none; }
+.dg .ln-strong { stroke: var(--ink); stroke-width: 1.6; fill: none; }
+.dg .dash { stroke-dasharray: 4 4; }
+.dg .fill-ink { fill: var(--ink-3); }
+.dg .fill-strong { fill: var(--ink); }

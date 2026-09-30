@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tello SDK Integration</title>
+<meta name="description" content="How FuityFly connects to and flies a DJI Tello: djitellopy, RC control, video, unit conversion and safety.">
+<meta property="og:title" content="FuityFly · DJI Tello SDK Integration">
+<meta property="og:description" content="From brain output to send_rc_control: connecting a spiking controller to a real DJI Tello.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<div id="site-nav"></div>
+
+<main class="page">
+  <header class="hero">
+    <p class="eyebrow">Part 03 · Hardware interface</p>
+    <h1>From spikes to <code>send_rc_control</code></h1>
+    <p class="lede">The brain only outputs abstract intentions: escape, yaw, forward. This page covers how those become four integers sent over Wi-Fi to a real DJI Tello, and everything we built so that doing so is safe.</p>
+    <div class="byline">
+      <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
+      <span class="meta">interfaces/tello_drone.py · tello_camera.py</span>
+    </div>
+  </header>
+
+  <aside class="toc" id="toc"></aside>
+
+  <section id="platform">
+    <h2><span class="sec">3.1</span>The platform</h2>
+    <p>The DJI (Ryze) Tello is a small consumer quadcopter with an onboard flight controller, downward vision positioning and a forward camera. It exposes a text-based <strong>SDK over UDP</strong>: commands go to the drone, and telemetry and H.264 video come back on separate ports. We drive it through <strong>djitellopy</strong><sup class="fn"><a href="#ref-djitellopy">[1]</a></sup>, a Python wrapper around that protocol that also decodes the video stream on a background thread.</p>
+    <p>The key design point is that <strong>the Tello stabilises itself</strong>. Unlike our simulator, which needs a PID cascade, we only request body-frame velocities and the drone's firmware handles attitude and motors.</p>
+  </section>
+
+  <section id="connect">
+    <h2><span class="sec">3.2</span>Connecting</h2>
+    <p>The laptop joins the Tello's Wi-Fi access point, and every session then follows the same handshake:</p>
+    <figure>
+      <div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 360" role="img" aria-label="Sequence: connect, battery, streamon, takeoff, RC loop, land">
+          <defs><marker id="s1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-strong"/></marker>
+          <marker id="s2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
+          <rect class="box" x="40" y="10" width="160" height="36" rx="5"/><text x="120" y="33" text-anchor="middle" font-size="13">Laptop (Python)</text>
+          <rect class="box-soft" x="480" y="10" width="160" height="36" rx="5"/><text x="560" y="33" text-anchor="middle" font-size="13">Tello</text>
+          <path class="ln dash" d="M120 46V350M560 46V350"/>
+
+          <path class="ln-strong" d="M120 75H554" marker-end="url(#s1)"/><text x="130" y="69" font-size="12">connect()</text><text x="550" y="69" text-anchor="end" class="t-sm">"command" → SDK mode</text>
+          <path class="ln-strong" d="M120 115H554" marker-end="url(#s1)"/><text x="130" y="109" font-size="12">get_battery()</text>
+          <path class="ln" d="M560 130H126" marker-end="url(#s2)"/><text x="550" y="145" text-anchor="end" class="t-sm">% (abort below 30)</text>
+          <path class="ln-strong" d="M120 175H554" marker-end="url(#s1)"/><text x="130" y="169" font-size="12">streamon()</text>
+          <path class="ln" d="M560 190H126" marker-end="url(#s2)"/><text x="550" y="205" text-anchor="end" class="t-sm">H.264 video, 960×720</text>
+          <path class="ln-strong" d="M120 235H554" marker-end="url(#s1)"/><text x="130" y="229" font-size="12">takeoff()</text>
+
+          <rect class="box-strong" x="100" y="252" width="480" height="54" rx="5"/>
+          <text x="340" y="274" text-anchor="middle" font-size="12.5">loop @ ~30 Hz: frame → brain → send_rc_control(lr, fb, ud, yaw)</text>
+          <text x="340" y="293" text-anchor="middle" class="t-sm">until timeout, key press, or behaviour says land</text>
+          <path class="ln-strong" d="M120 330H554" marker-end="url(#s1)"/><text x="130" y="324" font-size="12">send_rc_control(0,0,0,0) · land()</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig. 1</b>Session lifecycle. The simplest version, <code>tello_flight_test.py</code>, is only about 15 lines: connect, check battery, take off, wait 2 s, land.</figcaption>
+    </figure>
+    <div class="code">
+      <div class="code-head">tello_flight_test.py</div>
+<pre><code>from djitellopy import Tello
+import time
+
+tello = Tello()
+
+tello.connect(wait_for_state=False)
+print("Connected!")
+
+battery = tello.query_battery()
+print("Battery:", battery, "%")
+
+tello.takeoff()
+print("Flying!")
+
+time.sleep(2)
+
+tello.land()
+print("Landed!")</code></pre>
+    </div>
+  </section>
+
+  <section id="interface">
+    <h2><span class="sec">3.3</span>One interface, two drones</h2>
+    <p>Everything above the hardware talks to an abstract <code>DroneInterface</code> with methods such as <code>takeoff</code>, <code>land</code>, <code>hover</code>, <code>move_forward/backward/left/right</code>, <code>turn_left/right</code>, <code>get_camera_frame</code>, <code>get_state</code>, <code>step</code> and <code>reset</code>. There are two implementations:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th><code>PyBulletDrone</code></th><th><code>TelloDrone</code></th></tr></thead>
+        <tbody>
+          <tr><td>Stabilisation</td><td>Our PID cascade at 240 Hz</td><td>Tello firmware</td></tr>
+          <tr><td><code>step()</code></td><td>Advances physics</td><td>Sends one <code>send_rc_control</code></td></tr>
+          <tr><td>Position</td><td>Ground truth from physics</td><td>Dead-reckoned (§3.6)</td></tr>
+          <tr><td>Obstacle distance</td><td>Ray-casts</td><td>None (no sensor)</td></tr>
+          <tr><td>Camera</td><td>Rendered, 75° FOV</td><td>Real video, ~55.6° vertical FOV</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Moving the fly brain from simulation to hardware meant swapping this one object. The brain, vision and controller code were unchanged.</p>
+  </section>
+
+  <section id="rc">
+    <h2><span class="sec">3.4</span>RC control &amp; unit conversion</h2>
+    <p><code>send_rc_control(lr, fb, ud, yaw)</code> takes four integers in \([-100, 100]\), each a percentage of the drone's maximum speed. Our controllers think in m/s and rad/s, so <code>TelloDrone.step()</code> converts:</p>
+    <div class="eq">$$\text{rc}_{v} = \operatorname{clip}\!\big(\operatorname{round}(60 \cdot v),\ -100,\ 100\big), \qquad \text{rc}_{\omega} = \operatorname{clip}\!\left(\operatorname{round}\!\left(\frac{\omega}{1.5}\cdot 100\right),\ -100,\ 100\right)$$<span class="eq-num">(1)</span></div>
+    <p>The sign conventions also differ. In our codebase, positive yaw means turn left (counter-clockwise), and positive lateral velocity means move left. The Tello uses the opposite for both, so both are negated:</p>
+    <div class="code">
+      <div class="code-head">interfaces/tello_drone.py · TelloDrone.step()</div>
+<pre><code>def step(self):
+    if self.state != "flying":
+        return
+    lr = _mps_to_rc(-self.target_vy)   <span class="c"># send_rc_control: +lr = right; move_right is -target_vy</span>
+    fb = _mps_to_rc(self.target_vx)
+    ud = 0  <span class="c"># altitude changes not used by the hover/escape flight test; Tello holds altitude on its own</span>
+    <span class="c"># ... Tello's yaw_velocity is the opposite sign (+100 = cw/right), so flip it.</span>
+    yaw = _rate_to_rc(-self.target_yaw_rate)
+    self._tello.send_rc_control(lr, fb, ud, yaw)</code></pre>
+    </div>
+    <div class="note">
+      <p><strong>Known limitation · unverified scale factors.</strong> Both 60 %/(m/s) and 1.5 rad/s at 100% are <strong>assumptions</strong>, not measurements. Tello RC percentages are relative to the current <code>set_speed</code> setting, which we never changed. The code flags them to be verified with slow test moves before trusting them for a dodge.</p>
+    </div>
+  </section>
+
+  <section id="video">
+    <h2><span class="sec">3.5</span>Video pipeline</h2>
+    <p><code>streamon()</code> starts a 960×720 H.264 stream, which djitellopy decodes on a background thread. Each control cycle:</p>
+    <ol>
+      <li>Reads the newest decoded frame and converts RGB → BGR for OpenCV.</li>
+      <li>Resizes it to <strong>320×240</strong> (area interpolation). That is the resolution the optic-flow code was designed for, and it keeps Farnebäck flow within the frame budget.</li>
+      <li>Detects djitellopy's black 400×300 placeholder frame (served before the decoder has real video) and returns the last good frame instead. Otherwise a black frame followed by real video would look like a massive looming event.</li>
+    </ol>
+    <p>The optic-flow code needs the camera's field of view to undo rotation. The Tello's published 82.6° is a <em>diagonal</em> figure, so the escape flight test uses about 55.6° vertical.</p>
+  </section>
+
+  <section id="position">
+    <h2><span class="sec">3.6</span>Position without GPS</h2>
+    <p>The Tello has no GPS, and its velocity telemetry is often zero on non-EDU units. But the escape program needs to know how far into a dodge it has travelled. We <strong>dead-reckon</strong> by integrating the <em>commanded</em> body velocity, rotated into the world frame by the measured yaw \(\psi\):</p>
+    <div class="eq">$$\begin{bmatrix}x\\y\end{bmatrix} \mathrel{+}= \begin{bmatrix}\cos\psi & -\sin\psi\\ \sin\psi & \cos\psi\end{bmatrix}\begin{bmatrix}v_x\\ v_y\end{bmatrix}\Delta t$$<span class="eq-num">(2)</span></div>
+    <p>This works because the Tello tracks commanded velocity fairly directly and does not coast much once told to stop. It is good enough to time a roughly 1 s dodge, but it is never used for absolute navigation. Boundary containment is disabled on hardware.</p>
+  </section>
+
+  <section id="safety">
+    <h2><span class="sec">3.7</span>Safety systems</h2>
+    <p>A bug in a simulator costs a restart. A bug on a real drone costs a propeller, or worse. Several independent layers guard every flight:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td>Dry run by default</td><td><code>tello_camera.py</code> streams and runs perception but never takes off unless given <code>--fly</code>.</td></tr>
+          <tr><td>Battery gate</td><td>Refuses to take off below 30%. <code>battery.py</code> reports "OK to fly" and has a <code>--watch</code> mode.</td></tr>
+          <tr><td>Hard timeout</td><td>The escape flight test auto-lands 60 s after takeoff (<code>--seconds</code>).</td></tr>
+          <tr><td>Operator keys</td><td><code>q</code> land · <code>e</code> gentle stop-and-land · <code>x</code> emergency motor stop (banana flight). <code>l</code> land · <code>q</code>/<code>space</code> hover then land (escape test).</td></tr>
+          <tr><td>Clean shutdown</td><td>Zero RC command, wait 1 s, then <code>land()</code>.</td></tr>
+          <tr><td>Rate limits</td><td>All RC values clipped to ±100. Feeding behaviour caps lateral and vertical at 20%.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="feeding">
+    <h2><span class="sec">3.8</span>Feeding behaviour on the Tello</h2>
+    <p>The banana "hunger" behaviour (<code>controllers/food_orbit.py</code>) runs the <a href="banana.html">banana network</a> on every frame and drives a small state machine:</p>
+    <figure>
+      <div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 150" role="img" aria-label="State machine: SEARCH to FEED to DONE to LAND">
+          <defs><marker id="f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
+          <rect class="box-soft" x="10" y="45" width="140" height="56" rx="28"/><text x="80" y="78" text-anchor="middle" font-size="13" font-weight="600">SEARCH</text>
+          <rect class="box-strong" x="190" y="45" width="140" height="56" rx="28"/><text x="260" y="78" text-anchor="middle" font-size="13" font-weight="600">FEED</text>
+          <rect class="box" x="370" y="45" width="140" height="56" rx="28"/><text x="440" y="78" text-anchor="middle" font-size="13" font-weight="600">DONE</text>
+          <rect class="box" x="550" y="45" width="140" height="56" rx="28"/><text x="620" y="78" text-anchor="middle" font-size="13" font-weight="600">LAND</text>
+          <path class="ln" d="M150 73H186" marker-end="url(#f1)"/><path class="ln" d="M330 73H366" marker-end="url(#f1)"/><path class="ln" d="M510 73H546" marker-end="url(#f1)"/>
+          <text x="168" y="36" text-anchor="middle" class="t-sm">banana seen</text>
+          <text x="348" y="36" text-anchor="middle" class="t-sm">hunger ≤ 10</text>
+          <text x="528" y="36" text-anchor="middle" class="t-sm">+5 s</text>
+          <path class="ln dash" d="M240 101C240 135 100 135 100 105" marker-end="url(#f1)"/>
+          <text x="170" y="145" text-anchor="middle" class="t-sm">lost &gt; 1 s</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig. 2</b>Feeding state machine. SEARCH turns a little, pauses to look, and repeats. FEED keeps the banana centred with small proportional corrections.</figcaption>
+    </figure>
+    <p>Hunger starts at 100 and falls at 15 units per second while a banana is in view, so "eating" to the full threshold of 10 takes about 6 s:</p>
+    <div class="eq">$$t_{feed} = \frac{100 - 10}{15\ \text{s}^{-1}} = 6\ \text{s}$$<span class="eq-num">(3)</span></div>
+    <p>During FEED the drone never flies toward the banana. It makes deadzoned, smoothed corrections to keep the banana centred, and backs off at 10% if the banana grows past 25% of the frame.</p>
+  </section>
+
+  <section id="references">
+    <h2><span class="sec">R</span>References</h2>
+    <ol class="refs">
+      <li id="ref-djitellopy">DJITelloPy: DJI Tello drone Python interface using the official Tello SDK. <a href="https://github.com/damiafuentes/DJITelloPy">github.com/damiafuentes/DJITelloPy</a></li>
+      <li id="ref-sdk">Ryze Tech. <em>Tello SDK 2.0 User Guide.</em></li>
+    </ol>
+  </section>
+</main>
+
+<div id="site-footer"></div>
+</body>
+</html>
