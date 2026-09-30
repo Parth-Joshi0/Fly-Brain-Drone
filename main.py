@@ -31,24 +31,25 @@ Run:
     python main.py
 
 Everything PyBullet-specific (GUI window, test course, keyboard input,
-debug 3D view) lives behind interfaces/pybullet_simulator.py's
+debug 3D view) lives behind Simulator/pybullet_simulator.py's
 PyBulletSimulator, the SimulatorInterface implementation constructed
 below - same pattern as PyBulletDrone/DroneInterface. Swapping to the
 real drone means writing one new SimulatorInterface (and DroneInterface)
 implementation and changing the two lines below that construct them;
-nothing else in this file, or in controllers/ or vision/, needs to change.
+nothing else in this file, or in neural_pathways/ or reflex_controller.py,
+needs to change.
 """
 
 import cv2
 
-from interfaces.pybullet_simulator import PyBulletSimulator, SimulatorError
-from controllers.reflex_controller import ReflexController
-from controllers.manual_controller import ManualController
-from controllers.safety_layer import SafetyLayer
-from vision.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
+from Simulator.pybullet_simulator import PyBulletSimulator, SimulatorError
+from reflex_controller import ReflexController
+from Drone.manual_controller import ManualController
+from safety_layer import SafetyLayer
+from neural_pathways.escape_neuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
 
 # The hand-written CRUISE/AVOID_LEFT/AVOID_RIGHT state machine (default),
-# or the real Fly-Brain connectome circuit (controllers/
+# or the real Fly-Brain connectome circuit (neural_pathways/
 # flybrain_controller.py -> fly_brain_controller.py's LC4/LPLC2 ->
 # DNp01/03/06 looming subnetwork) - same decide(flow, state) contract,
 # swap one line to try it. Needs a Python env with brian2/pandas/pyarrow
@@ -212,7 +213,7 @@ def main():
     drone = sim.create_drone(start_pos=(0, 0, 0.05))
     manual = ManualController()
     if USE_FLYBRAIN:
-        from controllers.flybrain_controller import FlyBrainController
+        from neural_pathways.flybrain_controller import FlyBrainController
         autonomous = FlyBrainController(bounds=env["bounds"])
     else:
         autonomous = ReflexController(bounds=env["bounds"])

@@ -1,14 +1,12 @@
 __pycache__
 .vscode
 .env
-Fly-Brain/results/example
-Fly-Brain/results
 README.roboflow.txt
 temp.py
 yolov8n.pt
 dataset
 flybrain_spikes.log
-Testing/tello_neuron_test.log
+Drone/tests/tello_neuron_test.log
 .venv
 
-Fly-Brain/flywire_neuron_annotations_630.tsv
+neural_pathways/data/flywire_neuron_annotations_630.tsv

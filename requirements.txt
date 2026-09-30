@@ -1,4 +1,4 @@
 pybullet
 numpy
 opencv-python
-djitellopy   # real-drone tests only (tello_*.py, Testing/tello_neuron_test.py)
+djitellopy   # real-drone tests only (Drone/tello_*.py, Drone/tests/tello_neuron_test.py)
