@@ -10,4 +10,4 @@ The fly-inspired "hover → eat" feeding behaviour, separate from the escape/DNg
 
 ## Tests
 
-None yet — this pathway is currently only exercised indirectly, by flying `Drone/tello_camera.py` against a real banana and by `BananaModel`'s own checks on the detector it depends on. A scripted state-machine test (feed it synthetic detection sequences and assert on the SEARCH → FEED → DONE → LAND transitions, the way `NeuralPathways/Tests/test_optomotor_sign.py` does for the optomotor sign) would be a natural first one to add here.
+None yet — this pathway is currently only exercised indirectly, by flying `Drone/tello_camera.py` against a real banana and by `BananaModel`'s own checks on the detector it depends on. A scripted state-machine test (feed it synthetic detection sequences and assert on the SEARCH → FEED → DONE → LAND transitions, the way `NeuralPathways/StabilizerNeuron/Tests/test_optomotor_sign.py` does for the optomotor sign) would be a natural first one to add here.

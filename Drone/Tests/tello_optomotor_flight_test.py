@@ -16,7 +16,7 @@ moves right -> drone yaws right). Stop the sheet and it should stop turning.
 
 Why pixels_per_radian stays at derotate_flow's default (75): the measured
 flow-per-radian on the Tello is 106-184 at flight yaw rates (Farneback
-under-tracks - see NeuralPathways/DNG02_SESSION_NOTES.txt 6.2). 75 is below all of it, so the
+under-tracks - see NeuralPathways/StabilizerNeuron/DNG02_SESSION_NOTES.txt 6.2). 75 is below all of it, so the
 drone's own rotation is always UNDER-cancelled, the residual keeps the sign of
 the real rotation, and the loop opposes it: a damper. Over-cancelling (e.g. the
 geometric 228) flips that residual and is the positive-feedback case.

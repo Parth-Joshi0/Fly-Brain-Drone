@@ -13,7 +13,7 @@ cost the whole session. This test would have caught it in under a minute.
 It is a SMOKE test, not a correctness test: it asserts the loops run, log, and
 shut down cleanly in every mode, including the video path. It says nothing
 about whether the numbers are right - that is what
-NeuralPathways/Tests/test_dng02_circuit.py, NeuralPathways/Tests/test_optomotor_sign.py
+NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py, NeuralPathways/StabilizerNeuron/Tests/test_optomotor_sign.py
 and the --analyze pass are for.
 
     python Drone/Tests/test_tello_harness_smoke.py

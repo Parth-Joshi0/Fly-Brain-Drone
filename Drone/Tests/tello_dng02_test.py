@@ -696,7 +696,7 @@ def main():
     print("starting the brain subprocess (brian2 build takes a few seconds)...", flush=True)
     controller = FlyBrainController(bounds=None, optomotor=True)
     # Labels in recruitment-ladder order, straight from the network that built
-    # them - no need to re-derive the sort from dng02_circuit_neurons.json here
+    # them - no need to re-derive the sort from NeuralPathways/StabilizerNeuron/dng02_circuit_neurons.json here
     # and risk the two orders drifting apart.
     labels = controller._brain.dng02_labels
     left_mask = [side == "left" for side in controller._brain.dng02_sides]

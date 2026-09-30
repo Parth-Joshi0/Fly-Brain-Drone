@@ -49,7 +49,7 @@ Why these specific neurons:
                   independently - symmetric for thrust, opponent for yaw.
 These are documented cell-type names, cross-referenced from
 flyconnectome/flywire_annotations against this repo's own v630 completeness
-list - see looming_circuit_neurons.json's and dng02_circuit_neurons.json's
+list - see looming_circuit_neurons.json's and StabilizerNeuron/dng02_circuit_neurons.json's
 "source" fields.
 
 Why DNg02's readout is different in kind from the others: DNp01/03/06 are one
@@ -57,7 +57,7 @@ neuron per side, so all you can read out is one cell's firing rate, and a
 single real neuron only fires 0-4 times per 20ms window - a jumpy
 0/50/100/150Hz staircase that has to be EMA-smoothed into something a drone
 can fly on (see RATE_SMOOTHING). DNg02 is a population with a strongly graded
-input gradient (375 down to 0, see dng02_circuit_neurons.json's recruitment
+input gradient (375 down to 0, see StabilizerNeuron/dng02_circuit_neurons.json's recruitment
 ladder), so its cells recruit in roughly weight order as drive rises, and the
 natural readout is simply HOW MANY fired - an analog signal that needs no
 smoothing trick to exist. That's the population code Namiki et al. describe.
@@ -74,7 +74,7 @@ published open question, not something this file is glossing over - Schnell
 with LPTCs or other visually responsive neurons remains to be established".
 Everything downstream of that injection point is measured: which driver
 excites or inhibits which DNg02, and how strongly, all comes from the
-parquet. See build_dng02_circuit.py.
+parquet. See StabilizerNeuron/build_dng02_circuit.py.
 
 Why not just run the upstream Fly-Brain project's full connectome? That's built for
 offline experiments (run_exp() batches 30 x 1-second trials across all
@@ -105,7 +105,7 @@ net weight -22), and no excitatory driver touches the Giant Fiber at all. So
 driving this pool cannot make DNp01 fire; if anything it raises the escape
 threshold slightly. That is real connectome wiring rather than a bug, but it
 does mean escape is not perfectly independent of the flight-motor path, which
-is why NeuralPathways/Tests/test_dng02_circuit.py sweeps loom x drive together instead of
+is why NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py sweeps loom x drive together instead of
 just checking each alone.
 
 The DNg02 half is built only when asked for (with_dng02=True, which
@@ -178,7 +178,7 @@ from brian2 import mV, ms, Hz, second
 
 HERE = Path(__file__).resolve().parent
 NEURON_IDS_PATH = HERE / "looming_circuit_neurons.json"
-DNG02_IDS_PATH = HERE / "dng02_circuit_neurons.json"
+DNG02_IDS_PATH = HERE / "StabilizerNeuron" / "dng02_circuit_neurons.json"
 PATH_CON = HERE / "Data" / "2023_03_23_connectivity_630_final.parquet"
 
 # Same LIF constants as the upstream Fly-Brain model.py's default_params - see that
@@ -226,11 +226,11 @@ FORWARD_SAT_HZ = 30.0
 #
 # Peak Poisson rate onto a drive-pool neuron, same role MAX_POI_RATE plays
 # for the looming inputs. Started at the same 30Hz;
-# NeuralPathways/Tests/test_dng02_circuit.py's recruitment sweep is what this gets tuned against
+# NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py's recruitment sweep is what this gets tuned against
 # (the target is a graded curve across the 24 cells, not an all-or-nothing
 # step - if the whole population switches on at once there is no population
 # code left to read).
-# 150Hz, swept with exactly the sweep NeuralPathways/Tests/test_dng02_circuit.py runs. Mean
+# 150Hz, swept with exactly the sweep NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py runs. Mean
 # cells recruited (of 24) at requests 0/0.2/0.4/0.6/0.8/1.0:
 #     30Hz  ->  0.1  0.3  0.9  2.1  3.8  5.4    too compressed, 22% of the range
 #     60Hz  ->  0.4  0.6  2.3  4.8  7.7  8.9
@@ -262,13 +262,13 @@ DNG02_SMOOTHING = 0.25  # EMA on thrust/steer, same reasoning as RATE_SMOOTHING.
 # the bottom 8 cells of the ladder (excitatory weight 11 and below) never
 # recruit at all, so the effective population is ~16 cells. Dividing by 24
 # would cap thrust at ~0.54 and throw away half the usable range. Measured by
-# NeuralPathways/Tests/test_dng02_circuit.py, which re-checks it rather than trusting it.
+# NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py, which re-checks it rather than trusting it.
 DNG02_RECRUIT_SAT = 13.1
 
 # Measured recruitment curves per side, used to undo the population's built-in
 # left/right asymmetry before taking a difference. The right-side DNg02 cells
 # receive substantially more input than the left (1,857 vs 1,119 total
-# excitatory weight from the drive pool - build_dng02_circuit.py prints the
+# excitatory weight from the drive pool - StabilizerNeuron/build_dng02_circuit.py prints the
 # ratio), so at ANY symmetric request the right side recruits more cells.
 #
 # A single per-side scale factor does not fix this, because the two sides'
@@ -277,7 +277,7 @@ DNG02_RECRUIT_SAT = 13.1
 # side's count is mapped back through its OWN measured curve onto the common
 # 0..1 request axis, and the difference is taken there; symmetric drive then
 # gives zero at every level, not just at the one point a scale factor was fit
-# to. Regenerated as a paste-ready tuple by NeuralPathways/Tests/test_dng02_circuit.py.
+# to. Regenerated as a paste-ready tuple by NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py.
 DNG02_DRIVE_LEVELS = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 DNG02_LEFT_RECRUITMENT = (0.3, 0.9, 1.9, 3.9, 5.4, 5.8)
 DNG02_RIGHT_RECRUITMENT = (0.6, 1.4, 3.9, 5.7, 6.7, 7.3)
@@ -428,7 +428,7 @@ class FlyBrainController:
         poisson_syn.w = W_SYN * F_POI
 
         # Per-driver constants for the drive rule in step(), all straight from
-        # the connectome (build_dng02_circuit.py measured them): the sign of
+        # the connectome (StabilizerNeuron/build_dng02_circuit.py measured them): the sign of
         # its net effect on DNg02, and how its influence splits across the two
         # halves of the population.
         self._drive_sign = np.array([d["sign"] for d in self._drivers], dtype=float)

@@ -4,7 +4,7 @@ respond to an asymmetric request, does any of it disturb the escape circuit,
 and does it all still fit the 30Hz control budget. No simulator, no drone.
 
 Run under the brian2 env, from anywhere:
-    conda run -n brian2 python NeuralPathways/Tests/test_dng02_circuit.py
+    conda run -n brian2 python NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py
 
 This is the gate for everything downstream. Nothing should reach a real
 drone until this passes, because the two things it measures - the sign of the
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import fly_brain_controller as fbc
 
 STEPS = 50              # x 20ms = 1s of sustained stimulus per row

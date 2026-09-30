@@ -17,7 +17,7 @@ commanded yaw, which is the thing that actually reaches the motors:
                    -> decide() -> yaw_rate
 
 Runs in the normal (non-brian2) env - the brain is a subprocess, as always:
-    python NeuralPathways/Tests/test_optomotor_sign.py
+    python NeuralPathways/StabilizerNeuron/Tests/test_optomotor_sign.py
 
 The loop it is checking, stated once: positive yaw_rate means turn LEFT in this
 project. Turning left sweeps the scene rightwards across the image, so
@@ -30,7 +30,7 @@ same drift produces a positive yaw_rate and the loop diverges.
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 import NeuralPathways.flybrain_controller as fbc

@@ -85,8 +85,8 @@ import numpy as np
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
-PATH_CON = HERE / "Data" / "2023_03_23_connectivity_630_final.parquet"
-PATH_COMPLETENESS = HERE / "Data" / "2023_03_23_completeness_630_final.csv"
+PATH_CON = HERE.parent / "Data" / "2023_03_23_connectivity_630_final.parquet"
+PATH_COMPLETENESS = HERE.parent / "Data" / "2023_03_23_completeness_630_final.csv"
 OUT_PATH = HERE / "dng02_circuit_neurons.json"
 
 # Schlegel et al. 2024's FlyWire annotation table - the same v630 cell-type
@@ -96,7 +96,7 @@ ANNOTATIONS_URL = (
     "https://raw.githubusercontent.com/flyconnectome/flywire_annotations/main/"
     "supplemental_files/Supplemental_file1_neuron_annotations.tsv"
 )
-ANNOTATIONS_CACHE = HERE / "Data" / "flywire_neuron_annotations_630.tsv"
+ANNOTATIONS_CACHE = HERE.parent / "Data" / "flywire_neuron_annotations_630.tsv"
 
 # --- selection rules ---
 
@@ -107,7 +107,7 @@ CELL_TYPE_PREFIX = "DNg02"
 # determine DNg02's activity". 120 keeps ~77% of DNg02's total excitatory input
 # weight for ~11.1k synapses in the merged network (vs 7,973 today); the cost
 # is why this is a constant - see fly_brain_controller.py's step budget and
-# NeuralPathways/Tests/test_dng02_circuit.py, which asserts ms/step stays under 33.
+# NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py, which asserts ms/step stays under 33.
 # Coverage/cost at other sizes, measured: 40 -> 56% / 9.1k, 60 -> 64% / ~9.5k,
 # 80 -> 70% / 10.0k, 160 -> 82% / 12.2k.
 DRIVE_POOL_SIZE = 120
