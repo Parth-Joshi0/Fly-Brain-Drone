@@ -34,6 +34,7 @@ small moves to keep the banana in the picture.
 """
 
 import time
+from collections import deque
 from dataclasses import dataclass
 
 
@@ -58,9 +59,16 @@ BANANA_LABELS = {
 MIN_DETECTION_CONFIDENCE = 0.20
 MIN_CLASSIFIER_CONFIDENCE = 0.10
 
-# Banana out of sight this long while eating -> go back to searching.
-# Shorter gaps (detection flicker) just pause eating.
-TARGET_LOST_GRACE_TIME = 1.0
+# Flying to the banana and it flickers out: keep going (it's ahead)
+# this long before giving up to search - far-away bananas flicker a lot
+# and giving up after 1 s made the drone bounce between approaching
+# and searching 7 times in one flight (16:33)
+APPROACH_LOST_TIME = 2.5
+
+# While eating, the banana flickering out is usually just the detector
+# (flight 16:19: eating at ~4% size, seen 15/56 pictures) - hold still
+# this long before giving up and turning to look for it.
+FEED_LOST_HOLD_TIME = 3.0
 
 
 # ============================================================
@@ -85,11 +93,18 @@ FEED_RATE = 6.0
 
 # Turn a little, then hover still. Non-stop turning made the
 # drone curve off to the right.
-SEARCH_YAW_SPEED = 8
+SEARCH_YAW_SPEED = 10
 
 SEARCH_TURN_TIME = 1.0
 
-SEARCH_PAUSE_TIME = 2.0
+SEARCH_PAUSE_TIME = 1.0
+
+# Just lost the banana and know which side it went: turn that way
+# quickly and without pausing for this long first (flight 16:33: the
+# slow stop-start search took up to 16 s to find it again)
+QUICK_TURN_SPEED = 12
+
+QUICK_TURN_TIME = 2.5
 
 
 # ============================================================
@@ -102,10 +117,15 @@ CENTER_DEADZONE = 120
 
 VERTICAL_DEADZONE = 100
 
-# Slide left/right to bring it back to the middle
-LR_GAIN = 0.06
+# TURN left/right to face it, like a fly steering toward food.
+# (Turning keeps the banana in view without moving the drone; the
+# old sideways slide combined with turning made it swing.)
+TURN_GAIN = 0.08
 
-MAX_LR = 20
+MAX_TURN = 20
+
+# Approaching: steer more precisely than while eating
+APPROACH_TURN_DEADZONE = 60
 
 # Move up/down to bring it back to the middle
 UD_GAIN = 0.08
@@ -144,30 +164,35 @@ BACK_AWAY_SPEED = 40
 
 BACK_AWAY_TIME = 1.0
 
-# Coming back: fly toward the banana until it fills at least this
+# Fly toward the banana until it fills at least this
 # much of the screen (or as much as it did before the scare, if more).
 # Speed shrinks as it gets close, so it doesn't fly past. Slow also
 # means approaching things doesn't look like a new loom to the brain.
-EAT_SIZE_RATIO = 0.04
+EAT_SIZE_RATIO = 0.07
 
-APPROACH_GAIN = 400
+APPROACH_GAIN = 600
 
-APPROACH_MIN_SPEED = 8
+APPROACH_MIN_SPEED = 10
 
+# (25 was faster, but flying in that fast made the whole scene loom
+# and scared the fly brain - flight 16:44)
 APPROACH_MAX_SPEED = 15
 
 # Give up approaching after this long (eat from wherever we got to)
 APPROACH_MAX_TIME = 15.0
 
 # WAIT: always stay back at least this long after backing off...
-MIN_WAIT_TIME = 2.0
+MIN_WAIT_TIME = 1.0
 
-# ...and come back only after the banana has been in view this long
-# (a banana seen within FLICKER_GRACE counts as still in view -
-# detection flickers on the real drone)
-CLEAR_TIME = 1.0
+# ...and come back once the banana has been seen more than once
+# recently: its sightings since we started waiting span at least
+# CLEAR_SPAN, the latest within CLEAR_SPAN (one banana-AI result
+# covers ~0.2 s of pictures, so this needs 2+ separate sightings).
+# Asking for an unbroken look instead kept resetting on the real
+# drone's flickery detection.
+CLEAR_WINDOW = 1.0
 
-FLICKER_GRACE = 0.4
+CLEAR_SPAN = 0.4
 
 # Banana never seen while waiting (maybe too far to spot): after this
 # long, creep back anyway - if the object is still there, approaching
@@ -237,7 +262,6 @@ class FoodOrbitBehaviour:
         # Scared -> back away -> come back
         self.scared_start_time = None
         self.wait_start_time = None
-        self.clear_since = None
         self.return_start_time = None
         self.return_saw_banana = False
         self.approach_after_scare = False
@@ -245,6 +269,20 @@ class FoodOrbitBehaviour:
 
         # How far we've backed off since last eating (rc speed x seconds)
         self.backed_off = 0.0
+
+        # Which side the banana was last seen on (+1 right, -1 left) -
+        # when it's lost, turn that way to find it again
+        self.last_target_side = 1
+        self.search_dir = 1
+
+        # Quick turn only when we've actually seen the banana before
+        self.quick_turn = False
+
+        # Last camera-guided approach speed, kept through flickers
+        self.approach_speed = APPROACH_MIN_SPEED
+
+        # When the banana was seen recently (for WAIT's "is it clear?")
+        self.sightings = deque()
 
         # tello_camera.py lands when this becomes True
         self.should_land = False
@@ -345,20 +383,21 @@ class FoodOrbitBehaviour:
         target,
         frame_width,
         frame_height,
-        forward=0
+        forward=0,
+        center_deadzone=CENTER_DEADZONE
     ):
 
         x1, y1, x2, y2 = target.box
 
 
-        # Positive = banana right of middle -> slide right
+        # Positive = banana right of middle -> turn right (+yaw)
         x_error = (x1 + x2) / 2.0 - frame_width / 2.0
 
-        lr = 0
+        yaw = 0
 
-        if abs(x_error) > CENTER_DEADZONE:
+        if abs(x_error) > center_deadzone:
 
-            lr = clamp(x_error * LR_GAIN, -MAX_LR, MAX_LR)
+            yaw = clamp(x_error * TURN_GAIN, -MAX_TURN, MAX_TURN)
 
 
         # Positive = banana below middle -> move down (negative ud)
@@ -380,7 +419,7 @@ class FoodOrbitBehaviour:
             fb = -BACK_OFF_SPEED
 
 
-        return self._smooth_command(lr, fb, ud, 0)
+        return self._smooth_command(0, fb, ud, yaw)
 
 
     # ========================================================
@@ -392,15 +431,41 @@ class FoodOrbitBehaviour:
         now
     ):
 
+        since = now - self.search_start_time
+
+        if self.quick_turn and since < QUICK_TURN_TIME:
+
+            return self._smooth_command(0, 0, 0, QUICK_TURN_SPEED * self.search_dir)
+
+
         cycle = SEARCH_TURN_TIME + SEARCH_PAUSE_TIME
 
-        t = (now - self.search_start_time) % cycle
+        t = since % cycle
 
         if t < SEARCH_TURN_TIME:
 
-            return self._smooth_command(0, 0, 0, SEARCH_YAW_SPEED)
+            return self._smooth_command(0, 0, 0, SEARCH_YAW_SPEED * self.search_dir)
 
         return self._hover()
+
+
+    def _lost_banana(self, now):
+        """Give up on the banana for now: look for it, turning first
+        toward the side it was last seen on. No quick turn after a scare:
+        we only backed straight off, so the banana should still be ahead
+        (the quick turn looked like the drone flying off to one side)."""
+
+        after_scare = self.state == "APPROACH" and self.approach_after_scare
+
+        self.state = "SEARCH"
+
+        self.search_dir = self.last_target_side
+
+        self.search_start_time = now
+
+        self.quick_turn = not after_scare
+
+        return self._search_command(now)
 
 
     # ========================================================
@@ -478,9 +543,22 @@ class FoodOrbitBehaviour:
 
         if target_visible:
 
+            self.sightings.append(now)
+
+        while self.sightings and now - self.sightings[0] > CLEAR_WINDOW:
+
+            self.sightings.popleft()
+
+
+        if target_visible:
+
             self.last_target_time = now
 
             self.last_target_label = target.label.lower()
+
+            x1, _, x2, _ = target.box
+
+            self.last_target_side = 1 if (x1 + x2) / 2.0 >= frame_width / 2.0 else -1
 
             self.last_box_ratio = self._box_ratio(
                 target,
@@ -506,8 +584,6 @@ class FoodOrbitBehaviour:
 
             self.wait_start_time = now
 
-            self.clear_since = None
-
 
         # ====================================================
         # WAIT: hover and look - is the coast clear?
@@ -515,24 +591,22 @@ class FoodOrbitBehaviour:
 
         if self.state == "WAIT":
 
-            banana_in_view = now - self.last_target_time <= FLICKER_GRACE
+            recent = [t for t in self.sightings if t >= self.wait_start_time]
+
+            banana_in_view = (
+                len(recent) > 0
+                and recent[-1] - recent[0] >= CLEAR_SPAN
+                and now - recent[-1] <= CLEAR_SPAN
+            )
 
             if banana_in_view:
 
-                if self.clear_since is None:
-                    self.clear_since = now
-
-                if (
-                    now - self.clear_since >= CLEAR_TIME
-                    and now - self.wait_start_time >= MIN_WAIT_TIME
-                ):
+                if now - self.wait_start_time >= MIN_WAIT_TIME:
 
                     # Food in view, nothing in the way - come back
                     self._start_approach(now, True, after_scare=True)
 
             else:
-
-                self.clear_since = None
 
                 if now - self.wait_start_time >= WAIT_GIVE_UP_TIME:
 
@@ -580,13 +654,11 @@ class FoodOrbitBehaviour:
                 else:
 
                     # Made up the distance and still can't see it
-                    self.state = "SEARCH"
-
-                    return self._search_command(now)
+                    return self._lost_banana(now)
 
 
             # Lost the banana for a while
-            if now - self.last_target_time > TARGET_LOST_GRACE_TIME:
+            if now - self.last_target_time > APPROACH_LOST_TIME:
 
                 if self.approach_after_scare and self.backed_off > 0:
 
@@ -598,9 +670,7 @@ class FoodOrbitBehaviour:
                     return self._hover()
 
 
-                self.state = "SEARCH"
-
-                return self._search_command(now)
+                return self._lost_banana(now)
 
 
             # Short flicker: keep going forward - the banana's straight
@@ -608,9 +678,9 @@ class FoodOrbitBehaviour:
             # stand still most of the time.)
             if not target_visible:
 
-                self.backed_off = max(0.0, self.backed_off - APPROACH_MIN_SPEED * dt)
+                self.backed_off = max(0.0, self.backed_off - self.approach_speed * dt)
 
-                return self._smooth_command(0, APPROACH_MIN_SPEED, 0, 0)
+                return self._smooth_command(0, self.approach_speed, 0, 0)
 
 
             goal = max(EAT_SIZE_RATIO, self.size_before_scare)
@@ -636,11 +706,15 @@ class FoodOrbitBehaviour:
 
             self.backed_off = max(0.0, self.backed_off - forward * dt)
 
+            # Keep this speed through flickers (see above)
+            self.approach_speed = forward
+
             return self._keep_in_frame(
                 target,
                 frame_width,
                 frame_height,
-                forward=forward
+                forward=forward,
+                center_deadzone=APPROACH_TURN_DEADZONE
             )
 
 
@@ -685,15 +759,13 @@ class FoodOrbitBehaviour:
 
             if not target_visible:
 
-                # Lost it for a while: go back to looking.
-                if now - self.last_target_time > TARGET_LOST_GRACE_TIME:
+                # Lost it for a while: go and look for it.
+                if now - self.last_target_time > FEED_LOST_HOLD_TIME:
 
-                    self.state = "SEARCH"
-
-                    return self._search_command(now)
+                    return self._lost_banana(now)
 
 
-                # Short blink: hold still, eating pauses.
+                # Blink: hold still, eating pauses.
                 return self._hover()
 
 

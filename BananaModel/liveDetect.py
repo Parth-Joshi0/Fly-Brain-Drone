@@ -44,6 +44,7 @@ class BananaDetector:
         default_class_names=None,
         img_size=224,
         detector_conf_threshold=0.15,
+        detector_img_size=640,
         classifier_conf_threshold=0.0,
         padding_ratio=0.08,
         yolo_weights=os.path.join(os.path.dirname(__file__), 'yolov8n.pt'),
@@ -52,6 +53,11 @@ class BananaDetector:
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.img_size = img_size
         self.detector_conf_threshold = detector_conf_threshold
+        # YOLO's input size. 640 (YOLO's default) shrinks a 960px Tello
+        # frame; 960 keeps full detail, so small far-away bananas get
+        # found (banana filling 1.5% of the frame: 1/12 -> 9/12 found),
+        # at ~2x the time.
+        self.detector_img_size = detector_img_size
         self.classifier_conf_threshold = classifier_conf_threshold
         self.padding_ratio = padding_ratio
         self.default_class_names = default_class_names or [
@@ -99,6 +105,7 @@ class BananaDetector:
         results = self.detector(
             frame,
             conf=self.detector_conf_threshold,
+            imgsz=self.detector_img_size,
             classes=[COCO_BANANA_CLASS_ID],
             verbose=False
         )

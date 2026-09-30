@@ -58,6 +58,22 @@ MAX_BRAIN_STEPS = 2
 # fire again once it has dropped below this.
 REARM_LEVEL = 0.3
 
+# EFFERENCE COPY: flying forward / turning / going up-down makes the
+# whole scene expand, which the looming neurons can't tell from a
+# real threat - in flight 16:44 all 4 scares came from the drone's own
+# movement (escape level up to 1.0, as strong as a real hand wave).
+# Real flies ignore what their eyes see during their own deliberate
+# movements; so do we: while any rc command is bigger than this, and
+# for SELF_MOTION_HOLD after (the looming detector smooths over a few
+# pictures), scares are ignored and the trigger disarmed.
+SELF_MOTION_RC = 8
+
+SELF_MOTION_HOLD = 0.6
+
+# Ignore the bottom part of the picture for looming - feet and things
+# on the floor pass through there; a hand waved at the drone is higher
+IGNORE_BOTTOM_FRACTION = 1 / 3
+
 # Tello's 82.6 deg spec is diagonal; LoomingDetector wants vertical
 VERTICAL_FOV = 55.6
 
@@ -124,6 +140,10 @@ class FearBrain:
         self.loom_in = (0.0, 0.0)
         self._ready = True
 
+        # Efference copy (see SELF_MOTION_RC)
+        self.last_self_motion = 0.0
+        self.self_moving = False
+
 
     def start(self):
         """Call right after takeoff (or at the start of a dry run)."""
@@ -152,6 +172,12 @@ class FearBrain:
         )
 
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+
+        # Blank out the floor area (see IGNORE_BOTTOM_FRACTION) - a flat
+        # grey patch has no motion, so nothing there can look like a loom
+        cut = int(PROC_HEIGHT * (1 - IGNORE_BOTTOM_FRACTION))
+
+        gray[cut:, :] = 128
 
 
         state = self.drone.get_state()
@@ -223,6 +249,19 @@ class FearBrain:
         )
 
 
+        # Moving on purpose? Then what the eyes see is our own motion.
+        self.self_moving = now - self.last_self_motion < SELF_MOTION_HOLD
+
+        if self.self_moving:
+
+            # Disarmed until the (self-made) escape level has died down
+            self._ready = False
+
+            self.escaping = False
+
+            return False
+
+
         if level >= ESCAPE_STATE_THRESHOLD and self._ready:
 
             # Giant Fiber fired - react straight away
@@ -247,12 +286,17 @@ class FearBrain:
         return False
 
 
-    def record_command(self, lr, fb):
-        """Tell the dead reckoning what rc command was sent."""
+    def record_command(self, lr, fb, ud=0, yaw=0):
+        """Tell the brain what rc command was just sent: for dead
+        reckoning, and as the efference copy (see SELF_MOTION_RC)."""
 
         self.drone.target_vx = fb / RC_SPEED_SCALE
 
         self.drone.target_vy = -lr / RC_SPEED_SCALE
+
+        if max(abs(lr), abs(fb), abs(ud), abs(yaw)) > SELF_MOTION_RC:
+
+            self.last_self_motion = time.time()
 
 
     def close(self):

@@ -42,7 +42,7 @@ import cv2
 from djitellopy import Tello
 
 from BananaModel.liveDetect import BananaDetector
-from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour
+from NeuralPathways.ScaredEating.scared_eating_brain import ScaredEatingBrain
 
 
 # ============================================================
@@ -50,12 +50,6 @@ from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour
 # ============================================================
 
 MIN_BATTERY_FOR_FLIGHT = 30
-
-# With --scared, run the banana AI (~50 ms) only every Nth picture so
-# the looming detector + fly brain see more pictures per second - a
-# fast hand jumps too far between pictures at ~11/s to be noticed.
-# The banana barely moves between pictures anyway.
-BANANA_EVERY_N_SCARED = 3
 
 # Don't take off until the camera has sent a real picture.
 VIDEO_START_TIMEOUT = 10.0
@@ -114,6 +108,7 @@ LOG_COLUMNS = [
     "hunger", "lr", "fb", "ud", "yaw", "battery",
     "brain", "escape_dir", "loom_l", "loom_c", "loom_r",
     "escape_level", "wobble_floor", "loom_in_l", "loom_in_r", "hand",
+    "self_moving",
 ]
 
 
@@ -167,11 +162,8 @@ def main():
 
     print("Loading banana detector...")
 
-    detector = BananaDetector()
-
-    print("Loading food behaviour...")
-
-    behaviour = FoodOrbitBehaviour()
+    # Full Tello resolution (960px) - sees the banana from further away
+    detector = BananaDetector(detector_img_size=960)
 
 
     # ========================================================
@@ -231,6 +223,8 @@ def main():
 
     flying = False
 
+    brain = None
+
     fear = None
 
     log_file, log_writer = open_flight_log()
@@ -268,19 +262,26 @@ def main():
 
 
         # ====================================================
-        # FLY BRAIN (only with --scared)
+        # BRAIN: eating behaviour (+ fly brain with --scared)
         # ====================================================
 
         if args.scared:
 
-            # Imported here so normal runs don't need the brain set up
-            from NeuralPathways.EscapeNeuron.fear_brain import FearBrain
-
             print("Starting the fly brain (takes a few seconds)...")
 
-            fear = FearBrain(tello, frame_read)
+        brain = ScaredEatingBrain(
+            detector,
+            tello,
+            frame_read,
+            scared=args.scared
+        )
 
-            print("Fly brain ready")
+        # Shorthands for the screen / flight log below
+        behaviour = brain.behaviour
+
+        fear = brain.fear
+
+        print("Brain ready")
 
 
         # ====================================================
@@ -324,10 +325,8 @@ def main():
             )
 
 
-        # The brain ignores the first ~2 s (takeoff looks like a loom)
-        if fear is not None:
-
-            fear.start()
+        # The fly brain ignores the first ~2 s (takeoff looks like a loom)
+        brain.start()
 
 
         print(
@@ -353,10 +352,6 @@ def main():
 
         # Set by the 'h' key, written into the next flight-log row
         hand_mark = False
-
-        frame_count = 0
-
-        detections = []
 
 
         while True:
@@ -405,28 +400,13 @@ def main():
 
 
             # =================================================
-            # FLY BRAIN: is something looming? (before boxes
-            # are drawn on the frame - they'd look like motion)
+            # BRAIN: picture in, movement out (on the clean
+            # picture - see scared_eating_brain.py)
             # =================================================
 
-            # Giant Fiber fired -> back away (food_orbit.py does the
-            # moving; scare() is ignored once done eating / landing)
-            if fear is not None and fear.update(frame):
+            cmd = brain.step(frame)
 
-                behaviour.scare()
-
-
-            # =================================================
-            # BANANA DETECTION
-            # =================================================
-
-            banana_every = BANANA_EVERY_N_SCARED if fear is not None else 1
-
-            if frame_count % banana_every == 0:
-
-                detections = detector.detect(frame)
-
-            frame_count += 1
+            detections = brain.detections
 
             # Boxes from the latest detection (may be 1-2 pictures old)
             detector.annotate(frame, detections)
@@ -438,27 +418,12 @@ def main():
 
 
             # =================================================
-            # FOOD BRAIN
-            # =================================================
-
-            cmd = behaviour.update(
-                detections,
-                w,
-                h
-            )
-
-
-            # =================================================
             # SEND MOVEMENT
             # =================================================
 
             sent = (cmd.lr, cmd.fb, cmd.ud, cmd.yaw)
 
             scared = behaviour.state == "SCARED"
-
-            if fear is not None:
-
-                fear.record_command(cmd.lr, cmd.fb)
 
 
             if flying:
@@ -494,6 +459,7 @@ def main():
                 f"{fear.loom_in[0]:.2f}" if fear else "",
                 f"{fear.loom_in[1]:.2f}" if fear else "",
                 "HAND" if hand_mark else "",
+                ("yes" if fear.self_moving else "") if fear else "",
             ])
 
             log_file.flush()
@@ -629,6 +595,7 @@ def main():
                     f"{fear.expansion['right']:.1f}  "
                     f"ESCAPE: {fear.escape_level:.2f}/0.60  "
                     f"SCARES: {fear.scares}"
+                    + ("  (moving - ignoring)" if fear.self_moving else "")
                 )
 
                 cv2.putText(
@@ -815,11 +782,11 @@ def main():
 
         log_file.close()
 
-        if fear is not None:
+        if brain is not None:
 
             try:
 
-                fear.close()
+                brain.close()
 
             except Exception:
 
