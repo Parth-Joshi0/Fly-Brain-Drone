@@ -48,6 +48,6 @@ DNg02-specific circuit tests (`test_dng02_circuit.py`, `test_optomotor_sign.py`)
 
 ## Notes
 
-- `main.py` is deliberately **not** wired for optomotor yet — it builds its `flow` dict without `rotation`/`translation` keys, so `optomotor=True` there today would silently get a zero drive request.
+- `main.py` feeds optomotor when `USE_OPTOMOTOR = True`: it adds `signed_hemifield_flow`'s `rotation`/`translation` (only those two keys — that function's `left`/`right` are signed means and would clobber `grid_flow_strengths`' magnitudes) to its `flow` dict. Any other caller that builds `flow` without them still gets a zero drive request.
 - DNg02 steering uses the **opposite** sign convention to DNp06: DNg02 activity tracks wingbeat amplitude in the *contralateral* wing (more right-side DNg02 yaws right), whereas DNp06 steers *away* from looming. `flybrain_controller.py`'s `decide()` subtracts the DNg02 term where it adds the DNp06 one, two lines apart. Both are commented — don't "fix" either.
 - The scripts that start the brain overwrite `flybrain_spikes.log` in the repo root, just as `main.py` does. It's gitignored.

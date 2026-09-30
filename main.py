@@ -4,8 +4,9 @@ Interactive, visual run of the FlyBrain drone sim:
     Virtual Camera -> Optic Flow -> 3D Navigation Controller -> Safety
     Override -> Drone Interface -> PyBullet Drone
 
-Starts in AUTONOMOUS mode: takes off, hovers briefly, then explores on
-its own - no keyboard input needed. Every command (autonomous or manual)
+Starts in AUTONOMOUS mode: takes off, hovers briefly, then flies on its
+own - no keyboard input needed. With USE_BANANA (below) that means finding
+and eating a banana, as the real Tello does; otherwise exploring the course. Every command (autonomous or manual)
 passes through the SafetyLayer before reaching the drone, so it can
 override even a continuous "go forward" request if something's too
 close. Opens a PyBullet GUI window plus two debug windows (camera feed87
@@ -46,7 +47,8 @@ from Simulator.pybullet_simulator import PyBulletSimulator, SimulatorError
 from Simulator.reflex_controller import ReflexController
 from Drone.manual_controller import ManualController
 from safety_layer import SafetyLayer
-from NeuralPathways.EscapeNeuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths, FlowVisualizer, LoomingDetector
+from NeuralPathways.EscapeNeuron.optical_flow import (compute_flow, derotate_flow, grid_flow_strengths,
+                                                      signed_hemifield_flow, FlowVisualizer, LoomingDetector)
 
 # The hand-written CRUISE/AVOID_LEFT/AVOID_RIGHT state machine (default),
 # or the real Fly-Brain connectome circuit (NeuralPathways/
@@ -56,6 +58,24 @@ from NeuralPathways.EscapeNeuron.optical_flow import compute_flow, derotate_flow
 # installed (see fly_brain_controller.py's docstring); it's spawned as a
 # subprocess, so this venv itself doesn't need those.
 USE_FLYBRAIN = True
+
+# The DNg02 flight-motor / stabilizer circuit (NeuralPathways/
+# StabilizerNeuron/), in the same Brian2 network as the escape circuit.
+# Needs USE_FLYBRAIN. Feeds it residual (uncommanded) rotation and
+# translational optic flow; it adds a yaw correction and, when cruising, a
+# thrust adjustment. See FlyBrainController's optomotor=True.
+USE_OPTOMOTOR = True
+
+# Banana seek-and-eat, as flown on the real Tello (Drone/tello_camera.py):
+# BananaModel's YOLOv8 + ripeness detector on the camera frame drives
+# NeuralPathways/FoodNeuron/food_orbit.py's SEARCH -> APPROACH -> FEED ->
+# DONE -> LAND, with the fly brain (if USE_FLYBRAIN) as a background fear
+# reflex - click to throw a box at it while it eats. Puts a banana on a stand
+# at BANANA_POSITION; replaces course exploration, and NEURON_TEST_MODE
+# doesn't apply. Needs torch + ultralytics (requirements.txt).
+USE_BANANA = True
+BANANA_POSITION = (2.2, -0.5)   # m - within the ~2.5 m the detector sees it
+                                 # from in the sim (Simulator/banana.py)
 
 # Debug: when True, the autonomous controller still runs every cycle off
 # live optic flow (so FlyBrainController's neurons keep firing off the
@@ -81,6 +101,14 @@ _ACTION_FOR_STATE = {
     "WALL_ESCAPE": "WALL ESCAPE",
     "EMERGENCY_ESCAPE": "EMERGENCY ESCAPE",
     "BOUNDARY_RETURN": "RETURN TO COURSE",
+    # BananaSeekController's (food_orbit.py's) states
+    "SEARCH": "LOOKING FOR FOOD",
+    "APPROACH": "FLYING TO BANANA",
+    "FEED": "EATING",
+    "SCARED": "SCARED - BACKING AWAY",
+    "WAIT": "WAITING - IS IT SAFE?",
+    "DONE": "FULL",
+    "LAND": "LANDING",
 }
 
 # States where the navigation FSM is already actively steering away from
@@ -144,6 +172,22 @@ def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, f
             f"LEAST-VISITED: {controller.least_visited_cell}   "
             f"TIME NEAR WALL: {controller.wall_time_seconds:.1f}s"
         )
+    if hasattr(controller, "food"):
+        food = controller.food
+        target = food.current_target
+        lines.append(
+            f"HUNGER: {food.hunger:.0f}%   FOOD: {food.state}   "
+            f"TARGET: {target.label if target else 'NONE'}   SIZE: {food.last_box_ratio:.1%}   "
+            f"SCARES: {controller.scares}"
+        )
+    brain = getattr(controller, "brain", controller)
+    if getattr(brain, "optomotor", False):
+        dng02 = brain.dng02
+        lines.append(
+            f"DNg02: L={dng02['n_left']} R={dng02['n_right']} steer={dng02['steer']:+.2f} "
+            f"thrust={dng02['thrust']:.2f}   flow rot={flow.get('rotation', 0.0):+.2f} "
+            f"trans={flow.get('translation', 0.0):+.2f}"
+        )
     lines += [
         f"alt: {state['altitude']:.2f}m -> {state['target_altitude']:.2f}m   yaw: {state['yaw_degrees']:.0f}deg",
         f"pos: ({state['position'][0]:.1f}, {state['position'][1]:.1f})   "
@@ -153,6 +197,8 @@ def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, f
         f"{'  [STUCK]' if safety_info['stuck'] else ''}   collided: {state['collided']}",
     ]
     out = frame.copy()
+    if hasattr(controller, "detector"):
+        controller.detector.annotate(out, controller.detections)
     for i, line in enumerate(lines):
         color = (0, 0, 255) if safety_info["active"] else (0, 255, 0)
         cv2.putText(out, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
@@ -208,13 +254,26 @@ def apply_command(drone, cmd):
 
 
 def main():
-    sim = PyBulletSimulator()
+    sim = PyBulletSimulator(banana_position=BANANA_POSITION if USE_BANANA else None)
     env = sim.connect()
     drone = sim.create_drone(start_pos=(0, 0, 0.05))
     manual = ManualController()
+    step_count = 0
+    brain = None
     if USE_FLYBRAIN:
         from NeuralPathways.flybrain_controller import FlyBrainController
-        autonomous = FlyBrainController(bounds=env["bounds"])
+        brain = FlyBrainController(bounds=env["bounds"], optomotor=USE_OPTOMOTOR)
+    if USE_BANANA:
+        # Imported here so the other modes don't need torch/ultralytics
+        from BananaModel.liveDetect import BananaDetector
+        from Simulator.banana_seek_controller import BananaSeekController
+        # Physics time, not wall time: with the detector and the brain in
+        # the loop the sim runs slower than real time, and food_orbit's
+        # timers (hunger, back-off, waits) are about what the drone did.
+        autonomous = BananaSeekController(BananaDetector(), brain=brain,
+                                          clock=lambda: step_count * sim.physics_dt)
+    elif brain is not None:
+        autonomous = brain
     else:
         autonomous = ReflexController(bounds=env["bounds"])
     safety = SafetyLayer()
@@ -232,7 +291,6 @@ def main():
                              # for the "hover briefly before exploring" grace period
     was_exploring = False
 
-    step_count = 0
     consecutive_sim_failures = 0
     try:
         while True:
@@ -254,6 +312,12 @@ def main():
                         raw_flow = compute_flow(prev_gray, gray)
                         derotated = derotate_flow(raw_flow, capture_state["yaw_rate"], decision_dt)
                         flow = grid_flow_strengths(derotated)
+                        # Signed rotation/translation for DNg02 - only these
+                        # two keys: its "left"/"right" are signed means, not
+                        # the magnitudes grid_flow_strengths put there.
+                        hemifields = signed_hemifield_flow(derotated)
+                        flow["rotation"] = hemifields["rotation"]
+                        flow["translation"] = hemifields["translation"]
                         cv2.imshow("Optical Flow", flow_viz.render(derotated))
                     flow.update({f"expansion_{side}": value for side, value in expansion.items()})
                     prev_gray = gray
@@ -287,11 +351,13 @@ def main():
                     if mode == "manual":
                         raw_cmd = manual.decide(input_state)
                     elif exploring:
+                        if USE_BANANA:
+                            autonomous.see(frame)
                         raw_cmd = autonomous.decide(flow, state_now)  # still runs on live
                                                                         # flow even in test mode -
                                                                         # only its movement gets
                                                                         # thrown away below
-                        if NEURON_TEST_MODE and autonomous.state != "ESCAPE":
+                        if NEURON_TEST_MODE and not USE_BANANA and autonomous.state != "ESCAPE":
                             raw_cmd = dict(EMPTY_CMD)
                             raw_cmd["hover"] = True
                         raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
@@ -299,7 +365,14 @@ def main():
                         raw_cmd = dict(EMPTY_CMD)
                         raw_cmd.update(emergency_keys(input_state))
 
-                    if mode == "manual" or exploring:
+                    # Banana mode flies without the flow SafetyLayer, as the
+                    # real Tello does (tello_camera.py sends rc straight to the
+                    # drone): it's built for exploring - it speed-stages any
+                    # non-hover command up to cruise speed, reads eating in
+                    # place as STUCK after STUCK_WINDOW, and steers away from
+                    # the banana's stand once close. pybullet_drone.py's
+                    # physics-distance net still applies underneath.
+                    if mode == "manual" or (exploring and not USE_BANANA):
                         # 2. Obstacle safety/reflex layer - final override
                         # authority (this is what makes "hold/request forward
                         # into a wall" impossible even while flying itself).

@@ -1,4 +1,7 @@
 pybullet
 numpy
 opencv-python
+torch         # BananaModel/ detector: main.py's USE_BANANA, Drone/tello_camera.py
+torchvision
+ultralytics
 djitellopy   # real-drone tests only (Drone/tello_*.py, Drone/Tests/tello_neuron_test.py)

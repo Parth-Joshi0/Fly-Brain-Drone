@@ -75,9 +75,11 @@ python main.py
 ```
 
 Opens a PyBullet GUI window; starts in autonomous mode (takes off, hovers,
-then explores). Press `M` to switch to manual keyboard control, or
-left-click in the window to spawn a test obstacle and watch the escape
-reflex fire. See [`Simulator/README.md`](Simulator/README.md) for the full
+then finds a banana and eats it, with the fly brain's escape and DNg02
+circuits running - the `USE_BANANA` / `USE_OPTOMOTOR` / `USE_FLYBRAIN`
+flags at the top of `main.py` switch each off). Press `M` to switch to
+manual keyboard control, or left-click in the window to throw a test
+obstacle at the drone and watch the escape reflex fire. See [`Simulator/README.md`](Simulator/README.md) for the full
 test/evaluation suite.
 
 ### Real drone

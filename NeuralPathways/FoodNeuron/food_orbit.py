@@ -241,13 +241,18 @@ def smooth(old_value, new_value, alpha):
 
 class FoodOrbitBehaviour:
 
-    def __init__(self):
+    def __init__(self, clock=time.time):
+
+        # Seconds, for every timer below. Wall time on the real drone; the
+        # simulator passes its own physics time, since it runs slower than
+        # real time once the detector and the brain are in the loop.
+        self._clock = clock
 
         self.state = "SEARCH"
 
         # Hunger
         self.hunger = STARTING_HUNGER
-        self.last_update_time = time.time()
+        self.last_update_time = clock()
 
         # Target
         self.current_target = None
@@ -256,7 +261,7 @@ class FoodOrbitBehaviour:
         self.last_target_time = 0.0
 
         # Timers
-        self.search_start_time = time.time()
+        self.search_start_time = clock()
         self.done_start_time = None
 
         # Scared -> back away -> come back
@@ -489,7 +494,7 @@ class FoodOrbitBehaviour:
 
         self.state = "SCARED"
 
-        self.scared_start_time = time.time()
+        self.scared_start_time = self._clock()
 
         return True
 
@@ -527,7 +532,7 @@ class FoodOrbitBehaviour:
         frame_height
     ):
 
-        now = time.time()
+        now = self._clock()
 
         dt = now - self.last_update_time
 

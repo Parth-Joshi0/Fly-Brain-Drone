@@ -11,6 +11,7 @@ import time
 import pybullet as p
 import pybullet_data
 
+from Simulator.banana import add_banana
 from Simulator.environment import build_environment, OBSTACLE_TEXTURE
 from Drone.drone_interface import DroneInterface  # noqa: F401 (documents create_drone's return type)
 from Simulator.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
@@ -48,7 +49,10 @@ TEST_OBSTACLE_HALF_EXTENTS = [0.3, 0.3, 0.5]
 
 class PyBulletSimulator(SimulatorInterface):
 
-    def __init__(self):
+    def __init__(self, banana_position=None):
+        """banana_position: (x, y) to put a banana on a stand at (see
+        Simulator/banana.py), or None for none."""
+        self._banana_position = banana_position
         self._env = None
         self._drone = None
         self._heading_line_id = None
@@ -71,6 +75,9 @@ class PyBulletSimulator(SimulatorInterface):
         p.setGravity(0, 0, -GRAVITY)
 
         self._env = build_environment()
+        if self._banana_position is not None:
+            _, stand = add_banana(self._banana_position)
+            self._env["obstacles"].append(stand)
         self._test_obstacle_texture = p.loadTexture(OBSTACLE_TEXTURE)
         return {"bounds": self._env["bounds"], "goal_x": self._env["goal_x"]}
 

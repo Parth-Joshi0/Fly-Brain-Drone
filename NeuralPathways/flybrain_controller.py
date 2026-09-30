@@ -297,6 +297,7 @@ class FlyBrainController:
         self._prev_tilt = None
         self._rotation_floor = 0.0
         self.dng02 = {"n_left": 0, "n_right": 0, "thrust": 0.0, "steer": 0.0, "counts": {}}
+        self.escape_level = 0.0
         self._brain = _FlyBrainProcess(with_dng02=optomotor)
         # Fresh log each run (not appended) - this is a debug tool for
         # "what did the circuit just do", not a long-lived history.
@@ -311,6 +312,7 @@ class FlyBrainController:
         self._returning_to_bounds = False
         self._prev_tilt = None
         self._rotation_floor = 0.0
+        self.escape_level = 0.0
         self._brain.request({"reset": True})
 
     def close(self):
@@ -341,6 +343,7 @@ class FlyBrainController:
             payload.update(self._optomotor_drive(flow))
         result = self._brain.request(payload)
         yaw, forward, escape = result["yaw"], result["forward"], result["escape"]
+        self.escape_level = escape
         spike_counts = result.get("spike_counts", {})
         self.dng02 = result.get("dng02", self.dng02)
 
@@ -386,18 +389,9 @@ class FlyBrainController:
             if self.optomotor:
                 steer = self.dng02.get("steer", 0.0)
                 thrust = self.dng02.get("thrust", 0.0)
-                # MINUS, and it is the opposite sign to the DNp06 line above.
-                # DNg02 activity tracks wingbeat amplitude in the CONTRALATERAL
-                # wing, so more right-side DNg02 means a bigger left wingbeat,
-                # which yaws the fly RIGHT - fly_brain_controller.py's steer is
-                # positive for exactly that case. This project's convention is
-                # positive yaw_rate = turn LEFT. Hence subtract. DNp06's yaw is
-                # added instead because that circuit steers AWAY from a looming
-                # object, which is already positive-is-left. Two opposite
-                # conventions two lines apart, both deliberate.
-                dng02_yaw = -DNG02_YAW_GAIN * steer * (1.0 - escape)
-                dng02_yaw = max(-DNG02_YAW_AUTHORITY, min(DNG02_YAW_AUTHORITY, dng02_yaw))
-                yaw_rate += dng02_yaw
+                # Added to DNp06's yaw, but with the opposite sign convention
+                # - see dng02_yaw_rate().
+                yaw_rate += self.dng02_yaw_rate(escape)
                 forward_speed += DNG02_THRUST_SPEED * thrust * (1.0 - escape)
             if abs(yaw) > AVOID_STATE_THRESHOLD:
                 self.state = "AVOID_LEFT" if yaw > 0 else "AVOID_RIGHT"
@@ -410,6 +404,28 @@ class FlyBrainController:
             self._log_spikes(loom_left, loom_right, spike_counts, escape, forward_speed, yaw_rate)
 
         return self._command(forward_speed=forward_speed, yaw_rate=yaw_rate, strafe_speed=strafe_speed)
+
+    def dng02_yaw_rate(self, escape=None):
+        """The DNg02 stabilizer's yaw correction from the last decide(),
+        rad/s (0.0 unless optomotor=True). decide() adds it to cruise
+        steering; Simulator/banana_seek_controller.py adds it to the food
+        behaviour's own steering instead. escape defaults to the level the
+        last decide() saw.
+
+        MINUS, and it is the opposite sign to DNp06's yaw in decide().
+        DNg02 activity tracks wingbeat amplitude in the CONTRALATERAL wing, so
+        more right-side DNg02 means a bigger left wingbeat, which yaws the fly
+        RIGHT - fly_brain_controller.py's steer is positive for exactly that
+        case. This project's convention is positive yaw_rate = turn LEFT.
+        Hence subtract. DNp06's yaw is added instead because that circuit
+        steers AWAY from a looming object, which is already positive-is-left.
+        Two opposite conventions, both deliberate."""
+        if not self.optomotor:
+            return 0.0
+        if escape is None:
+            escape = self.escape_level
+        dng02_yaw = -DNG02_YAW_GAIN * self.dng02.get("steer", 0.0) * (1.0 - escape)
+        return max(-DNG02_YAW_AUTHORITY, min(DNG02_YAW_AUTHORITY, dng02_yaw))
 
     @staticmethod
     def _optomotor_drive(flow):
