@@ -22,8 +22,11 @@ python NeuralPathways/BrainView/show_brain.py main.py                           
 python NeuralPathways/BrainView/show_brain.py Drone/Tests/tello_neuron_test.py                 # real Tello, props off
 python NeuralPathways/BrainView/show_brain.py Drone/Tests/tello_escape_flight_test.py --seconds 30
 python NeuralPathways/BrainView/show_brain.py Drone/Tests/tello_optomotor_flight_test.py --dry-run
-python NeuralPathways/BrainView/show_brain.py Drone/tello_camera.py                            # banana feeding
+python NeuralPathways/BrainView/show_brain.py Drone/tello_camera.py                            # banana feeding, dry run
+python NeuralPathways/BrainView/show_brain.py Drone/tello_camera.py --fly --scared             # feeding + Giant Fiber scare
 ```
+
+With `Drone/tello_camera.py` the FoodNeuron state machine is what flies the Tello. The brain (only with `--scared`, via `EscapeNeuron/fear_brain.py`) decides *when* to get scared, and its own dodge command is thrown away. So for that script the diagram shows the feeding state (SEARCH / APPROACH / FEED / SCARED / WAIT / DONE / LAND) as the headline state, and the RC command food_orbit.py actually sent in place of the brain command. The DNp01/03/06 nodes still light from the real spikes, including the extra catch-up brain steps `FearBrain` runs per camera frame. Without `--scared` no connectome runs, so only FEEDING is lit.
 
 `--fps N` (before the script path) caps how often the diagram is redrawn. The default is 15, which is every other 30 Hz decision cycle. A redraw costs about 6 ms, and on the real drone the brain step alone already uses about 20 of the 33 ms budget. Activity is still recorded every cycle, so the raster never skips a step. Only the repaint is rate-limited.
 
@@ -44,8 +47,8 @@ attach(controller)          # controller = FlyBrainController(...)
 | DNg02 drive-pool dots (green excitatory, purple inhibitory) | the `drive_*` request sent to the brain | Each driver's rate, computed with the same rule as `step()` |
 | Eyes, `exp` | `flow["expansion_*"]` | max(side, center), the expansion that side's loom is built from |
 | ESCAPE / TURN / FORWARD / THRUST / STEER bars | `escape`, `yaw`, `forward`, `dng02.thrust`, `dng02.steer` | Circuit output. TURN and STEER are both drawn screen-left = turn left, even though DNp06 and DNg02 use opposite signs (see `../README.md`) |
-| brain command + drone glyph | what `decide()` returned | Before `main.py`'s `NEURON_TEST_MODE` hover and before `SafetyLayer`, both of which can still override it |
-| state (top right) | `controller.state` / `escape_direction` | |
+| brain command + drone glyph | what `decide()` returned | Before `main.py`'s `NEURON_TEST_MODE` hover and before `SafetyLayer`, both of which can still override it. Under `tello_camera.py` this panel shows the FoodNeuron RC command that was sent instead |
+| state (top right) | `controller.state` / `escape_direction`, or the FoodNeuron state when that is flying the drone | |
 | `brain step … ms` | wall time of each subprocess round trip | |
 
 ## Tests (`Tests/`)

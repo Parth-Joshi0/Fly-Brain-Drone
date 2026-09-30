@@ -127,8 +127,11 @@ STATE_COLORS = {
     "BOUNDARY_RETURN": DNP03,
     "OPTOMOTOR": DNG02,
     "SEARCH": FOOD,
+    "APPROACH": FOOD,
     "FEED": FOOD,
     "DONE": FOOD,
+    "SCARED": DNP01,      # food_orbit.py's reaction to the Giant Fiber (--scared)
+    "WAIT": DNP03,
     "LAND": MUTED,
 }
 
@@ -270,14 +273,23 @@ class BrainActivity:
         self.escape_direction = getattr(controller, "escape_direction", "")
         self.cmd = cmd
 
-    def record_food(self, behaviour):
+    def record_food(self, behaviour, cmd=None):
         self.food = {
             "state": behaviour.state,
             "hunger": float(behaviour.hunger),
             "visible": behaviour.current_target is not None,
             "label": behaviour.last_target_label or "",
+            # food_orbit.py's RCCommand - in Drone/tello_camera.py this, not
+            # the brain's own command, is what actually reaches the Tello.
+            "rc": tuple(getattr(cmd, k, 0) for k in ("lr", "fb", "ud", "yaw")) if cmd is not None else None,
         }
         self.food_time = time.monotonic()
+
+    def food_drives(self):
+        """True while a FoodOrbitBehaviour is flying the drone (tello_camera.py).
+        There the brain only decides WHEN to get scared - its own motor
+        command is discarded (see NeuralPathways/EscapeNeuron/fear_brain.py)."""
+        return self.feeding_running()
 
     # --- what's "on" right now (header chips) ---
 
@@ -543,10 +555,8 @@ class BrainDiagram:
                       MUTED if running else DIM, align="center")
             x += 128
 
-        if act.food is not None and act.feeding_running() and not act.brain_attached:
-            state = act.food["state"]
-        else:
-            state = act.state
+        # Whatever is actually flying the drone gets the state readout.
+        state = act.food["state"] if act.food_drives() else act.state
         label = state
         if state == "ESCAPE" and act.escape_direction:
             label = f"ESCAPE {act.escape_direction}"
@@ -656,8 +666,10 @@ class BrainDiagram:
             _text(img, "FoodNeuron (feeding) - idle", 500, y0 + 29, 0.36, MUTED, align="center")
             return
         food = act.food
-        _text(img, f"FEEDING  {food['state']}", x0 + 8, y0 + 18, 0.42, FOOD if running else MUTED)
-        seen = f"banana: {food['label']}" if food["visible"] else "banana: not in view"
+        state_color = STATE_COLORS.get(food["state"], FOOD) if running else MUTED
+        _text(img, "FEEDING", x0 + 8, y0 + 18, 0.42, FOOD if running else MUTED)
+        _text(img, food["state"], x0 + 82, y0 + 18, 0.42, state_color)
+        seen = food["label"] if food["visible"] else "no banana"
         _text(img, seen, x1 - 8, y0 + 18, 0.33, TEXT if food["visible"] else MUTED, align="right")
         _text(img, "hunger", x0 + 8, y0 + 40, 0.33, MUTED)
         _bar(img, x0 + 58, y0 + 31, 120, 10, food["hunger"] / 100.0, FOOD if running else DIM)
@@ -695,6 +707,18 @@ class BrainDiagram:
                 side = "" if abs(value) < 0.005 else (" L" if toward_left else " R")
                 _text(img, f"{abs(value):.2f}{side}", 478, y + 11, 0.38, TEXT, align="right")
 
+        if act.food_drives() and act.food["rc"] is not None:
+            # Drone/tello_camera.py: food_orbit.py's RC command is what gets
+            # sent; the brain only decides when to get scared.
+            lr, fb, ud, yaw = act.food["rc"]
+            _text(img, "sent to the Tello  (FoodNeuron RC, -100..100)", 22, 666, 0.34, MUTED)
+            _text(img, f"LR {lr:+d}   FB {fb:+d}   UD {ud:+d}   YAW {yaw:+d}", 22, 685, 0.38, TEXT)
+            if act.brain_attached:
+                _text(img, "(brain's own dodge command not used here)", 22, 702, 0.32, MUTED)
+            # Tello RC: lr > 0 = right, fb > 0 = forward, yaw > 0 = clockwise.
+            self._draw_glyph(img, right=lr * 0.4, forward=fb * 0.4, turn_left=-yaw / 50.0)
+            return
+
         _text(img, "brain command", 22, 666, 0.34, MUTED)
         _text(img, "(before main.py's test-mode hover / SafetyLayer)", 22, 702, 0.32, MUTED)
         cmd = act.cmd
@@ -704,20 +728,24 @@ class BrainDiagram:
         yaw = cmd["yaw_rate"]
         _text(img, f"fwd {cmd['forward_speed']:+.2f} m/s   strafe {cmd['strafe_speed']:+.2f} m/s   "
                    f"yaw {yaw:+.2f} rad/s", 22, 685, 0.38, TEXT)
+        # This project's convention: strafe > 0 = left, yaw_rate > 0 = turn left.
+        self._draw_glyph(img, right=-cmd["strafe_speed"] * 7, forward=cmd["forward_speed"] * 7,
+                         turn_left=yaw)
 
-        # Top-down drone glyph: arrow = commanded velocity (up = forward,
-        # left = strafe left), arc = commanded yaw (positive = turn left).
+    @staticmethod
+    def _draw_glyph(img, right, forward, turn_left):
+        """Top-down drone: arrow = commanded velocity in pixels (up =
+        forward), arc = commanded turn (roughly rad/s, positive = left)."""
         gx, gy = 452, 676
         cv2.circle(img, (gx, gy), 16, OUTLINE, 1, cv2.LINE_AA)
-        vx = -cmd["strafe_speed"] * 7
-        vy = -cmd["forward_speed"] * 7
-        if abs(vx) + abs(vy) > 0.5:
-            cv2.arrowedLine(img, (gx, gy), (int(gx + vx), int(gy + vy)), TEXT, 2, cv2.LINE_AA, tipLength=0.3)
-        if abs(yaw) > 0.02:
+        if math.hypot(right, forward) > 4:     # shorter just draws a blob
+            cv2.arrowedLine(img, (gx, gy), (int(gx + right), int(gy - forward)), TEXT, 2,
+                            cv2.LINE_AA, tipLength=0.3)
+        if abs(turn_left) > 0.02:
             # 270 deg is straight up in image coordinates; decreasing sweeps
             # toward the left.
-            sweep = int(min(150, abs(yaw) * 150))
-            end = 270 - sweep if yaw > 0 else 270 + sweep
+            sweep = int(min(150, abs(turn_left) * 150))
+            end = 270 - sweep if turn_left > 0 else 270 + sweep
             cv2.ellipse(img, (gx, gy), (22, 22), 0, 270, end, DNP06, 2, cv2.LINE_AA)
 
     RASTER_ROWS = (
@@ -829,7 +857,11 @@ def attach(controller, *, window=WINDOW_NAME, max_fps=DEFAULT_MAX_FPS, display=T
     def decide(flow, state=None):
         cmd = inner_decide(flow, state)
         view.activity.record_decision(flow, controller, cmd)
-        view.show()
+        # When a FoodOrbitBehaviour is flying the drone (tello_camera.py), its
+        # update() runs after the brain in the same frame and does the redraw,
+        # so the picture pairs this brain step with the command actually sent.
+        if not view.activity.food_drives():
+            view.show()
         return cmd
 
     controller.decide = decide
@@ -845,7 +877,7 @@ def attach_food(behaviour, *, window=WINDOW_NAME, max_fps=DEFAULT_MAX_FPS, displ
 
     def update(detections, frame_width, frame_height):
         cmd = inner_update(detections, frame_width, frame_height)
-        view.activity.record_food(behaviour)
+        view.activity.record_food(behaviour, cmd)
         view.show()
         return cmd
 
