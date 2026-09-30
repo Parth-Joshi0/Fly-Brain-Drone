@@ -49,7 +49,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from boundary_math import (heading_rate_toward, outside_bounds, well_inside_bounds)
+from Simulator.boundary_math import (heading_rate_toward, outside_bounds, well_inside_bounds)
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
@@ -158,7 +158,7 @@ OPTOMOTOR_STATE_THRESHOLD = 0.2  # |steer| above this -> "OPTOMOTOR" state
 # needs independent handling exactly like ReflexController already does,
 # and each autonomous controller is meant to be self-contained/swappable
 # (see Simulator/reflex_controller.py's "Swap-in contract" note). The stateless
-# geometry itself (boundary_math.py) is shared - only the
+# geometry itself (Simulator/boundary_math.py) is shared - only the
 # tuning and state-machine behavior are kept independent. ---
 BOUNDARY_FORWARD_SPEED = 0.5
 BOUNDARY_TURN_RATE = 0.35
