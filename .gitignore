@@ -9,10 +9,7 @@ flybrain_spikes.log
 Drone/flight_logs/tello_neuron_test.log
 .venv
 
-<<<<<<< Updated upstream
 NeuralPathways/Data/flywire_neuron_annotations_630.tsv
-=======
-
 .claude
 CLAUDE.md
->>>>>>> Stashed changes
+.venv-brain

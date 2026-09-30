@@ -1,26 +1,41 @@
 """
 DJI Tello live banana detection + fly-inspired food behaviour.
 
+Run from the repo root:
+
 Normal:
-    python tello_camera.py
+    python Drone/tello_camera.py
 
 This is DRY RUN mode.
 The drone DOES NOT take off.
 
 Real flight:
-    python tello_camera.py --fly
+    python Drone/tello_camera.py --fly
+
+Scared while eating (fly brain backs away from anything swooping at it,
+then comes back to finish the banana - needs .venv-brain, see
+NeuralPathways/EscapeNeuron/fear_brain.py):
+    python Drone/tello_camera.py --fly --scared
 
 Keys:
     q = land and quit
+    h = mark "I'm waving my hand NOW" in the flight log (for tuning --scared)
     e = stop moving right away and land gently
     x = EMERGENCY motor stop (drone falls - only if about to hit something)
 """
 
 import os
+import sys
 import csv
 import time
 import argparse
 from datetime import datetime
+from pathlib import Path
+
+# Repo root on the path, so BananaModel/, NeuralPathways/ etc. import
+# no matter where this is run from (same as Drone/tests/*.py).
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 import cv2
 
@@ -35,6 +50,12 @@ from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour
 # ============================================================
 
 MIN_BATTERY_FOR_FLIGHT = 30
+
+# With --scared, run the banana AI (~50 ms) only every Nth picture so
+# the looming detector + fly brain see more pictures per second - a
+# fast hand jumps too far between pictures at ~11/s to be noticed.
+# The banana barely moves between pictures anyway.
+BANANA_EVERY_N_SCARED = 3
 
 # Don't take off until the camera has sent a real picture.
 VIDEO_START_TIMEOUT = 10.0
@@ -91,6 +112,8 @@ LOG_COLUMNS = [
     "time_s", "mode", "state", "bananas_seen",
     "label", "det_conf", "cls_conf", "size_pct",
     "hunger", "lr", "fb", "ud", "yaw", "battery",
+    "brain", "escape_dir", "loom_l", "loom_c", "loom_r",
+    "escape_level", "wobble_floor", "loom_in_l", "loom_in_r", "hand",
 ]
 
 
@@ -126,6 +149,13 @@ def main():
         "--fly",
         action="store_true",
         help="actually take off and fly"
+    )
+
+    parser.add_argument(
+        "--scared",
+        action="store_true",
+        help="run the fly brain's looming escape circuit: dodge "
+             "anything swooping at the drone, then come back to eat"
     )
 
     args = parser.parse_args()
@@ -201,6 +231,8 @@ def main():
 
     flying = False
 
+    fear = None
+
     log_file, log_writer = open_flight_log()
 
     start_time = time.time()
@@ -233,6 +265,22 @@ def main():
 
 
         print("Camera OK")
+
+
+        # ====================================================
+        # FLY BRAIN (only with --scared)
+        # ====================================================
+
+        if args.scared:
+
+            # Imported here so normal runs don't need the brain set up
+            from NeuralPathways.EscapeNeuron.fear_brain import FearBrain
+
+            print("Starting the fly brain (takes a few seconds)...")
+
+            fear = FearBrain(tello, frame_read)
+
+            print("Fly brain ready")
 
 
         # ====================================================
@@ -276,6 +324,12 @@ def main():
             )
 
 
+        # The brain ignores the first ~2 s (takeoff looks like a loom)
+        if fear is not None:
+
+            fear.start()
+
+
         print(
             "Press q to quit."
         )
@@ -296,6 +350,13 @@ def main():
         last_frame = None
 
         last_new_frame_time = time.time()
+
+        # Set by the 'h' key, written into the next flight-log row
+        hand_mark = False
+
+        frame_count = 0
+
+        detections = []
 
 
         while True:
@@ -344,14 +405,31 @@ def main():
 
 
             # =================================================
+            # FLY BRAIN: is something looming? (before boxes
+            # are drawn on the frame - they'd look like motion)
+            # =================================================
+
+            # Giant Fiber fired -> back away (food_orbit.py does the
+            # moving; scare() is ignored once done eating / landing)
+            if fear is not None and fear.update(frame):
+
+                behaviour.scare()
+
+
+            # =================================================
             # BANANA DETECTION
             # =================================================
 
-            frame, detections = (
-                detector.detect_and_annotate(
-                    frame
-                )
-            )
+            banana_every = BANANA_EVERY_N_SCARED if fear is not None else 1
+
+            if frame_count % banana_every == 0:
+
+                detections = detector.detect(frame)
+
+            frame_count += 1
+
+            # Boxes from the latest detection (may be 1-2 pictures old)
+            detector.annotate(frame, detections)
 
 
             h, w = (
@@ -374,14 +452,18 @@ def main():
             # SEND MOVEMENT
             # =================================================
 
+            sent = (cmd.lr, cmd.fb, cmd.ud, cmd.yaw)
+
+            scared = behaviour.state == "SCARED"
+
+            if fear is not None:
+
+                fear.record_command(cmd.lr, cmd.fb)
+
+
             if flying:
 
-                tello.send_rc_control(
-                    cmd.lr,
-                    cmd.fb,
-                    cmd.ud,
-                    cmd.yaw
-                )
+                tello.send_rc_control(*sent)
 
 
             # =================================================
@@ -400,14 +482,23 @@ def main():
                 f"{target.cls_conf:.2f}" if target else "",
                 f"{behaviour.last_box_ratio * 100:.1f}" if target else "",
                 f"{behaviour.hunger:.0f}",
-                cmd.lr,
-                cmd.fb,
-                cmd.ud,
-                cmd.yaw,
+                *sent,
                 tello.get_battery(),
+                (fear.brain.state if fear.armed else "ARMING") if fear else "",
+                fear.escape_direction if fear and fear.escaping else "",
+                f"{fear.expansion['left']:.2f}" if fear else "",
+                f"{fear.expansion['center']:.2f}" if fear else "",
+                f"{fear.expansion['right']:.2f}" if fear else "",
+                f"{fear.escape_level:.2f}" if fear else "",
+                f"{fear.wobble_floor:.2f}" if fear else "",
+                f"{fear.loom_in[0]:.2f}" if fear else "",
+                f"{fear.loom_in[1]:.2f}" if fear else "",
+                "HAND" if hand_mark else "",
             ])
 
             log_file.flush()
+
+            hand_mark = False
 
 
             # Done eating + waited 5 s -> land (in finally).
@@ -526,14 +617,64 @@ def main():
 
 
             # -------------------------------------------------
-            # MOVEMENT COMMANDS
+            # FLY BRAIN
+            # -------------------------------------------------
+
+            if fear is not None:
+
+                brain_text = (
+                    f"BRAIN: {fear.brain.state if fear.armed else 'ARMING'}  "
+                    f"LOOM L/C/R: {fear.expansion['left']:.1f}/"
+                    f"{fear.expansion['center']:.1f}/"
+                    f"{fear.expansion['right']:.1f}  "
+                    f"ESCAPE: {fear.escape_level:.2f}/0.60  "
+                    f"SCARES: {fear.scares}"
+                )
+
+                cv2.putText(
+                    frame,
+                    brain_text,
+                    (10, 180),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65,
+                    (0, 0, 255) if scared else (0, 255, 255),
+                    2
+                )
+
+                if scared:
+
+                    cv2.putText(
+                        frame,
+                        "SCARED! DNp01 fired - BACKING AWAY",
+                        (10, h // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.2,
+                        (0, 0, 255),
+                        3
+                    )
+
+                elif behaviour.state == "WAIT":
+
+                    cv2.putText(
+                        frame,
+                        "WAITING - is it safe? (need to see the banana)",
+                        (10, h // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.9,
+                        (0, 165, 255),
+                        2
+                    )
+
+
+            # -------------------------------------------------
+            # MOVEMENT COMMANDS (what was actually sent)
             # -------------------------------------------------
 
             command_text = (
-                f"LR:{cmd.lr}  "
-                f"FB:{cmd.fb}  "
-                f"UD:{cmd.ud}  "
-                f"YAW:{cmd.yaw}"
+                f"LR:{sent[0]}  "
+                f"FB:{sent[1]}  "
+                f"UD:{sent[2]}  "
+                f"YAW:{sent[3]}"
             )
 
             cv2.putText(
@@ -571,6 +712,14 @@ def main():
             if key == ord("q"):
 
                 break
+
+
+            # h = mark the moment a hand is waved, for tuning
+            if key == ord("h"):
+
+                hand_mark = True
+
+                print("HAND marked")
 
 
             # e = stop moving now, then land gently (in finally)
@@ -665,6 +814,16 @@ def main():
         cv2.destroyAllWindows()
 
         log_file.close()
+
+        if fear is not None:
+
+            try:
+
+                fear.close()
+
+            except Exception:
+
+                pass
 
 
 # ============================================================
