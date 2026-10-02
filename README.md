@@ -1,5 +1,8 @@
 # Fly-Brain Rover (FruityFly Drone)
 
+> **Note:** This project is still being actively developed and is bound to
+> change. The repo will be further cleaned up later.
+
 A drone piloted by an actual fly brain. The autonomous controller is a
 [Brian2](https://brian2.readthedocs.io/) spiking network built from real
 **FlyWire v630** connectome data — not a neural-net metaphor, the measured
