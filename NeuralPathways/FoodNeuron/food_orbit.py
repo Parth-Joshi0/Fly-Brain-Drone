@@ -1,10 +1,14 @@
 """
 Fly-inspired food behaviour.
 
-    SEARCH     turn a little, hover still, repeat - looking for a banana
+    SCAN       look around the room: pause and look (zoomed in, see
+               wants_zoom), turn 45 deg, repeat - 8 turns = a full 360.
+               Banana seen twice -> APPROACH. Two full 360s with no
+               banana -> LAND.
     -> APPROACH  banana seen: fly toward it, aimed by the camera,
                  slowing down as it gets close, until it looks big
-                 enough to eat (lost it for a while -> SEARCH)
+                 enough to eat (lost it for a while -> LOOK: stop and
+                 look zoomed in for 1 s, then SCAN)
     -> FEED    keep it in the picture and eat
     -> DONE    full: slide a little right, hover
     -> LAND    5 s after eating (tello_camera.py lands when should_land)
@@ -21,7 +25,7 @@ Fly-inspired food behaviour.
                  way. Only the brain makes it back away - never the
                  banana flickering out (flight 16:07: that pushed it out
                  of sight of the banana)
-    -> FEED    carry on eating where hunger left off (or SEARCH if the
+    -> FEED    carry on eating where hunger left off (or SCAN if the
                banana isn't in view). Every new scare starts over.
 
 The looming neurons only fire for things getting CLOSER, not for
@@ -88,23 +92,45 @@ FEED_RATE = 6.0
 
 
 # ============================================================
-# SEARCH
+# SCAN THE ROOM
 # ============================================================
 
-# Turn a little, then hover still. Non-stop turning made the
-# drone curve off to the right.
-SEARCH_YAW_SPEED = 10
+# Pause and look, then turn SCAN_STEP_DEG, repeat. The camera sees
+# ~70 deg across, so 45 deg steps overlap a little and miss nothing;
+# 8 of them make a full 360 in ~15 s. The pauses matter: pictures
+# taken while turning are blurred and the banana AI misses far-away
+# bananas in them, and while paused it uses the slower zoomed-in look
+# (see wants_zoom), which sees ~2x further.
+SCAN_STEP_DEG = 45
 
-SEARCH_TURN_TIME = 1.0
+SCAN_TURN_SPEED = 40
 
-SEARCH_PAUSE_TIME = 1.0
+# Stop turning after this long even if the compass hasn't reached
+# SCAN_STEP_DEG yet (or there's no compass - see DEG_PER_RC_S)
+SCAN_TURN_TIMEOUT = 2.5
 
-# Just lost the banana and know which side it went: turn that way
-# quickly and without pausing for this long first (flight 16:33: the
-# slow stop-start search took up to 16 s to find it again)
-QUICK_TURN_SPEED = 12
+SCAN_PAUSE_TIME = 0.7
 
-QUICK_TURN_TIME = 2.5
+# Spotted something? Stop and keep looking this long to confirm it
+SCAN_CONFIRM_TIME = 1.2
+
+# A banana counts as found once seen in this many pictures within the
+# last CLEAR_WINDOW, at least SCAN_CONFIRM_SPAN apart
+SCAN_CONFIRM_SIGHTINGS = 2
+
+SCAN_CONFIRM_SPAN = 0.15
+
+# Full 360s with no banana before giving up and landing
+MAX_SCANS = 2
+
+# Without a compass (e.g. the simulator), heading is estimated from
+# the yaw commands sent: roughly this many degrees per second per rc
+# unit. The real drone passes its compass heading to update() instead.
+DEG_PER_RC_S = 1.0
+
+# Approaching and the banana's gone for APPROACH_LOST_TIME: stop and
+# look (zoomed in) this long before going back to scanning
+LOOK_TIME = 1.0
 
 
 # ============================================================
@@ -248,7 +274,7 @@ class FoodOrbitBehaviour:
         # real time once the detector and the brain are in the loop.
         self._clock = clock
 
-        self.state = "SEARCH"
+        self.state = "SCAN"
 
         # Hunger
         self.hunger = STARTING_HUNGER
@@ -261,8 +287,11 @@ class FoodOrbitBehaviour:
         self.last_target_time = 0.0
 
         # Timers
-        self.search_start_time = clock()
         self.done_start_time = None
+        self.look_start_time = None
+
+        # Why should_land became True (for tello_camera.py's message)
+        self.land_reason = ""
 
         # Scared -> back away -> come back
         self.scared_start_time = None
@@ -280,8 +309,13 @@ class FoodOrbitBehaviour:
         self.last_target_side = 1
         self.search_dir = 1
 
-        # Quick turn only when we've actually seen the banana before
-        self.quick_turn = False
+        # Heading (degrees, keeps counting past 360) - from the compass
+        # if update() gets one, else estimated from our yaw commands
+        self.heading = 0.0
+        self._last_compass = None
+
+        # Scan progress (see _start_scan)
+        self._start_scan(clock())
 
         # Last camera-guided approach speed, kept through flickers
         self.approach_speed = APPROACH_MIN_SPEED
@@ -428,49 +462,127 @@ class FoodOrbitBehaviour:
 
 
     # ========================================================
-    # SEARCH: TURN A LITTLE, THEN HOVER STILL
+    # SCAN THE ROOM: LOOK, TURN 45 DEG, REPEAT
     # ========================================================
 
-    def _search_command(
-        self,
-        now
-    ):
+    @property
+    def wants_zoom(self):
+        """True while holding still to look for the banana - the slower
+        zoomed-in banana AI is worth it then (ScaredEatingBrain)."""
 
-        since = now - self.search_start_time
+        return (
+            (self.state == "SCAN" and self.scan_phase == "pause")
+            or self.state in ("LOOK", "WAIT")
+        )
 
-        if self.quick_turn and since < QUICK_TURN_TIME:
 
-            return self._smooth_command(0, 0, 0, QUICK_TURN_SPEED * self.search_dir)
+    def _start_scan(self, now):
+
+        self.scan_phase = "pause"      # look first, then turn
+        self.phase_start_time = now
+        self.step_start_heading = self.heading
+        self.scan_turned = 0.0
+        self.scans_done = 0
+        self.scan_spotted = False
 
 
-        cycle = SEARCH_TURN_TIME + SEARCH_PAUSE_TIME
+    def _banana_confirmed(self):
 
-        t = since % cycle
+        if len(self.sightings) < SCAN_CONFIRM_SIGHTINGS:
+            return False
 
-        if t < SEARCH_TURN_TIME:
+        return self.sightings[-1] - self.sightings[0] >= SCAN_CONFIRM_SPAN
 
-            return self._smooth_command(0, 0, 0, SEARCH_YAW_SPEED * self.search_dir)
 
-        return self._hover()
+    def _scan_command(self, now, target_visible):
+
+        # Spotted something while turning: stop and take a proper look
+        if target_visible and self.scan_phase == "turn":
+
+            self.scan_turned += abs(self.heading - self.step_start_heading)
+
+            self.scan_phase = "pause"
+
+            self.phase_start_time = now
+
+        if target_visible:
+
+            self.scan_spotted = True
+
+
+        if self.scan_phase == "turn":
+
+            turned = abs(self.heading - self.step_start_heading)
+
+            if (
+                turned >= SCAN_STEP_DEG
+                or now - self.phase_start_time >= SCAN_TURN_TIMEOUT
+            ):
+
+                self.scan_turned += turned
+
+                self.scan_phase = "pause"
+
+                self.phase_start_time = now
+
+                self.scan_spotted = False
+
+                return self._hover()
+
+
+            return self._smooth_command(0, 0, 0, SCAN_TURN_SPEED * self.search_dir)
+
+
+        # Pause: hold still and look
+        pause = SCAN_CONFIRM_TIME if self.scan_spotted else SCAN_PAUSE_TIME
+
+        if now - self.phase_start_time < pause:
+
+            return self._hover()
+
+
+        # Done looking here - full circle?
+        if self.scan_turned >= 360 - SCAN_STEP_DEG / 2:
+
+            self.scans_done += 1
+
+            self.scan_turned = 0.0
+
+            if self.scans_done >= MAX_SCANS:
+
+                self.state = "LAND"
+
+                self.should_land = True
+
+                self.land_reason = f"no banana found after {MAX_SCANS} full 360s"
+
+                return self._hover()
+
+
+        # Next turn
+        self.scan_phase = "turn"
+
+        self.phase_start_time = now
+
+        self.step_start_heading = self.heading
+
+        self.scan_spotted = False
+
+        return self._smooth_command(0, 0, 0, SCAN_TURN_SPEED * self.search_dir)
 
 
     def _lost_banana(self, now):
-        """Give up on the banana for now: look for it, turning first
-        toward the side it was last seen on. No quick turn after a scare:
-        we only backed straight off, so the banana should still be ahead
-        (the quick turn looked like the drone flying off to one side)."""
+        """Give up on the banana for now and scan for it: look first
+        (after a scare we only backed straight off, so it's probably
+        still ahead), then turn toward the side it was last seen on."""
 
-        after_scare = self.state == "APPROACH" and self.approach_after_scare
-
-        self.state = "SEARCH"
+        self.state = "SCAN"
 
         self.search_dir = self.last_target_side
 
-        self.search_start_time = now
+        self._start_scan(now)
 
-        self.quick_turn = not after_scare
-
-        return self._search_command(now)
+        return self._hover()
 
 
     # ========================================================
@@ -529,14 +641,32 @@ class FoodOrbitBehaviour:
         self,
         detections,
         frame_width,
-        frame_height
+        frame_height,
+        yaw_deg=None
     ):
+        """yaw_deg: the drone's compass heading (Tello's yaw, degrees),
+        if known - used to count the scan's turns. Without it, heading
+        is estimated from the yaw commands (see DEG_PER_RC_S)."""
 
         now = self._clock()
 
         dt = now - self.last_update_time
 
         self.last_update_time = now
+
+
+        if yaw_deg is not None:
+
+            if self._last_compass is not None:
+
+                # -180..180 wraps around - take the short way
+                self.heading += (yaw_deg - self._last_compass + 180) % 360 - 180
+
+            self._last_compass = yaw_deg
+
+        else:
+
+            self.heading += self.prev_yaw * DEG_PER_RC_S * dt
 
 
         target = self._choose_target(detections)
@@ -675,7 +805,12 @@ class FoodOrbitBehaviour:
                     return self._hover()
 
 
-                return self._lost_banana(now)
+                # Stop and take a proper (zoomed-in) look first
+                self.state = "LOOK"
+
+                self.look_start_time = now
+
+                return self._hover()
 
 
             # Short flicker: keep going forward - the banana's straight
@@ -727,6 +862,27 @@ class FoodOrbitBehaviour:
         # DONE EATING -> SLIDE RIGHT, HOVER, THEN LAND
         # ====================================================
 
+        # ====================================================
+        # LOOK: lost it on the way - stop and look (zoomed in)
+        # ====================================================
+
+        if self.state == "LOOK":
+
+            if self._banana_confirmed():
+
+                self._start_approach(now, True, self.approach_after_scare)
+
+                return self._hover()
+
+
+            if now - self.look_start_time >= LOOK_TIME:
+
+                return self._lost_banana(now)
+
+
+            return self._hover()
+
+
         if self.state == "LAND":
 
             return RCCommand()
@@ -741,6 +897,8 @@ class FoodOrbitBehaviour:
                 self.state = "LAND"
 
                 self.should_land = True
+
+                self.land_reason = "finished eating"
 
                 return self._hover()
 
@@ -799,10 +957,10 @@ class FoodOrbitBehaviour:
 
 
         # ====================================================
-        # SEARCH
+        # SCAN THE ROOM
         # ====================================================
 
-        if target_visible:
+        if target_visible and self._banana_confirmed():
 
             # Found one - fly to it (from next frame)
             self._start_approach(now, True, after_scare=False)
@@ -814,4 +972,4 @@ class FoodOrbitBehaviour:
             )
 
 
-        return self._search_command(now)
+        return self._scan_command(now, target_visible)

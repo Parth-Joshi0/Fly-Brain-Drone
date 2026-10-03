@@ -404,7 +404,16 @@ def main():
             # picture - see scared_eating_brain.py)
             # =================================================
 
-            cmd = brain.step(frame)
+            # Compass heading - lets the room scan count its turns
+            try:
+
+                yaw_deg = tello.get_yaw()
+
+            except Exception:
+
+                yaw_deg = None
+
+            cmd = brain.step(frame, yaw_deg)
 
             detections = brain.detections
 
@@ -467,11 +476,11 @@ def main():
             hand_mark = False
 
 
-            # Done eating + waited 5 s -> land (in finally).
+            # Done eating, or no banana anywhere -> land (in finally).
             if behaviour.should_land:
 
                 print(
-                    "Finished eating - landing."
+                    f"Landing: {behaviour.land_reason}."
                 )
 
                 break
