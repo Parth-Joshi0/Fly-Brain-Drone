@@ -24,6 +24,7 @@ subprocess and real Farneback on real frames.
 import math
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -105,6 +106,69 @@ def stub_cv2_display():
     cv2.namedWindow = lambda *a, **k: None
 
 
+class FakeCameraTello(FakeTello):
+    """The extra djitellopy calls tello_camera.py makes."""
+
+    def connect(self):
+        pass
+
+    def get_yaw(self):
+        return 0
+
+    def get_frame_read(self):
+        return FakeCameraFrameRead()
+
+
+class FakeCameraFrameRead(FakeFrameRead):
+    class worker:
+        @staticmethod
+        def is_alive():
+            return True
+
+
+class NoBananaDetector:
+    """Stands in for BananaDetector (YOLO + classifier) - sees nothing."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    def detect(self, frame):
+        return []
+
+    def annotate(self, frame, detections):
+        pass
+
+
+def run_tello_camera(log_dir, seconds):
+    """tello_camera.py --scared --stabilize as a dry run: the banana-eating
+    drone brain with the fly brain's escape + DNg02 circuits, HUD and flight
+    log. Quits with 'q' after `seconds` (it has no time limit of its own)."""
+    import Drone.tello_camera as cam
+    cam.Tello = FakeCameraTello
+    cam.BananaDetector = NoBananaDetector
+    cam.LOG_DIR = str(log_dir)
+    t_end = []
+
+    def wait_key(*a, **k):
+        if not t_end:
+            t_end.append(time.time() + seconds)
+        return ord("q") if time.time() > t_end[0] else 255
+
+    cam.cv2.waitKey = wait_key
+    old_argv = sys.argv
+    sys.argv = ["x", "--scared", "--stabilize"]
+    try:
+        cam.main()
+        check(True, "tello_camera --scared --stabilize: main() returned cleanly")
+    except Exception as exc:
+        check(False, f"tello_camera: raised {type(exc).__name__}: {exc}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        sys.argv = old_argv
+        cv2.waitKey = lambda *a, **k: 255
+
+
 def run_script(module, argv, label):
     """Runs a script's real main() with the drone and display faked out."""
     module.open_tello = lambda log: FakeTello()
@@ -172,6 +236,24 @@ def main():
         rows = [l for l in text.splitlines() if l[:1].isdigit()]
         check("SUMMARY" in text and "END" in text and len(rows) >= 3,
               f"{name}: {len(rows)} data rows, header + summary present")
+
+    # The banana-eating drone brain with every fly-brain circuit on. Long
+    # enough for the fly brain to arm (ARM_GRACE_SECONDS + WARMUP_FRAMES), so
+    # the DNg02 HUD line and log columns actually get evaluated.
+    print("\n--- tello_camera --scared --stabilize, dry run ---")
+    cam_dir = tmp / "camera"
+    run_tello_camera(cam_dir, seconds=8)
+    import csv
+    flights = sorted(cam_dir.glob("flight_*.csv"))
+    if not flights:
+        check(False, "tello_camera: no flight log written")
+    else:
+        with open(flights[-1]) as f:
+            rows = list(csv.DictReader(f))
+        armed = [r for r in rows if r["brain"] not in ("", "ARMING")]
+        check(len(armed) >= 3, f"tello_camera: {len(armed)} of {len(rows)} rows with the fly brain armed")
+        check(all(r["dng02_steer"] != "" for r in armed),
+              "tello_camera: DNg02 columns filled on every armed row")
 
     # And the analyser has to read back what the loop just wrote - the two
     # drifted apart once already when a column was added.

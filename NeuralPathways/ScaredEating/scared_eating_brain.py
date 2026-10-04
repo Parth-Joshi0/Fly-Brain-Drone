@@ -25,13 +25,18 @@ While the drone holds still to look for the banana (scan pauses,
 waiting after a scare), the banana AI uses a slower zoomed-in look
 that sees about twice as far - see detect_zoomed().
 
-Without scared=True it's just the eating behaviour (no fly brain, so
-no Brian2 needed). Drone/tello_camera.py does the rest: camera, safety,
-screen, keys, flight log.
+stabilize=True also runs the fly brain's DNg02 flight-motor population
+(StabilizerNeuron/) as a yaw stabilizer in every state: its correction
+is added to whatever yaw the eating behaviour asks for. It only fights
+rotation the behaviour didn't ask for - see fear_brain.py.
+
+Without scared=True or stabilize=True it's just the eating behaviour
+(no fly brain, so no Brian2 needed). Drone/tello_camera.py does the
+rest: camera, safety, screen, keys, flight log.
 """
 
 from BananaModel.liveDetect import Detection
-from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour
+from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour, RCCommand, clamp
 
 
 # With the fly brain running, the banana AI (~40-50 ms) only runs on
@@ -97,22 +102,26 @@ def detect_zoomed(detector, frame_bgr):
 
 class ScaredEatingBrain:
 
-    def __init__(self, detector, tello=None, frame_read=None, scared=False):
+    def __init__(self, detector, tello=None, frame_read=None, scared=False, stabilize=False):
 
         self.detector = detector
 
         self.behaviour = FoodOrbitBehaviour()
 
+        self.scared = scared
+
+        self.stabilize = stabilize
+
         self.fear = None
 
-        if scared:
+        if scared or stabilize:
 
             # Imported here so plain eating doesn't need Brian2 set up
             from NeuralPathways.EscapeNeuron.fear_brain import FearBrain
 
-            self.fear = FearBrain(tello, frame_read)
+            self.fear = FearBrain(tello, frame_read, stabilize=stabilize)
 
-        self.banana_every = BANANA_EVERY_N_SCARED if scared else 1
+        self.banana_every = BANANA_EVERY_N_SCARED if self.fear is not None else 1
 
         self.picture_count = 0
 
@@ -138,8 +147,8 @@ class ScaredEatingBrain:
 
         # Looming first, on the clean picture - boxes drawn on it would
         # look like motion. Giant Fiber fired -> back away (scare() is
-        # ignored once done eating / landing).
-        if self.fear is not None and self.fear.update(frame_bgr):
+        # ignored once done eating / landing). This also runs DNg02.
+        if self.fear is not None and self.fear.update(frame_bgr) and self.scared:
 
             self.behaviour.scare()
 
@@ -160,11 +169,27 @@ class ScaredEatingBrain:
 
         cmd = self.behaviour.update(self.detections, w, h, yaw_deg)
 
+        intended_yaw = cmd.yaw
 
-        # Efference copy + dead reckoning for the fly brain
+
+        # DNg02 stabilizer on top of whatever the behaviour wants
+        if self.stabilize:
+
+            cmd = RCCommand(
+                lr=cmd.lr,
+                fb=cmd.fb,
+                ud=cmd.ud,
+                yaw=int(clamp(cmd.yaw + self.fear.dng02_yaw_rc, -100, 100))
+            )
+
+
+        # Efference copy + dead reckoning for the fly brain. The whole
+        # command counts as self-motion for the looming circuit (a DNg02
+        # turn sweeps the scene too); only the behaviour's own yaw is
+        # what DNg02 must not fight.
         if self.fear is not None:
 
-            self.fear.record_command(cmd.lr, cmd.fb, cmd.ud, cmd.yaw)
+            self.fear.record_command(cmd.lr, cmd.fb, cmd.ud, cmd.yaw, intended_yaw=intended_yaw)
 
         return cmd
 

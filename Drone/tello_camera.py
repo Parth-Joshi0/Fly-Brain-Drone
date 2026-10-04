@@ -17,6 +17,11 @@ then comes back to finish the banana - needs .venv-brain, see
 NeuralPathways/EscapeNeuron/fear_brain.py):
     python Drone/tello_camera.py --fly --scared
 
+DNg02 stabilizer (the fly brain's flight-motor neurons hold the heading
+steady in every state, on top of the eating behaviour's own turns -
+works with or without --scared, see fear_brain.py):
+    python Drone/tello_camera.py --fly --scared --stabilize
+
 Keys:
     q = land and quit
     h = mark "I'm waving my hand NOW" in the flight log (for tuning --scared)
@@ -29,6 +34,8 @@ import sys
 import csv
 import time
 import argparse
+import platform
+import statistics
 from datetime import datetime
 from pathlib import Path
 
@@ -109,6 +116,9 @@ LOG_COLUMNS = [
     "brain", "escape_dir", "loom_l", "loom_c", "loom_r",
     "escape_level", "wobble_floor", "loom_in_l", "loom_in_r", "hand",
     "self_moving",
+    "fps", "brain_ms",
+    "dng02_rotation", "dng02_l", "dng02_r", "dng02_steer", "dng02_thrust",
+    "intended_yaw", "dng02_yaw",
 ]
 
 
@@ -132,6 +142,53 @@ def open_flight_log():
     return log_file, writer
 
 
+def dng02_log_fields(fear, behaviour):
+    """The flight-log columns for the DNg02 stabilizer."""
+
+    d = fear.brain.dng02
+
+    return [
+        f"{fear.dng02_rotation:.3f}",
+        d.get("n_left", 0),
+        d.get("n_right", 0),
+        f"{d.get('steer', 0.0):.3f}",
+        f"{d.get('thrust', 0.0):.3f}",
+        fear.intended_yaw_rc,
+        fear.dng02_yaw_rc,
+    ]
+
+
+# Pictures/s the fly brain needs to catch a quick hand swipe: at ~16/s
+# it caught 4/4, at ~11/s 0/4 (see fear_brain.py MAX_BRAIN_STEPS).
+# Measured on one MacBook Air - so check it on whatever this runs on.
+MIN_LOOP_FPS = 15
+
+
+def print_loop_summary(fps_seen, brain_ms_seen):
+    """Loop rate and brain cost for this run on this machine."""
+
+    if len(fps_seen) < 10:
+        return
+
+    fps_median = statistics.median(fps_seen)
+
+    print(f"Loop: median {fps_median:.1f} pictures/s over {len(fps_seen)} pictures")
+
+    if brain_ms_seen:
+
+        brain_ms_seen = sorted(brain_ms_seen)
+
+        p95 = brain_ms_seen[int(0.95 * (len(brain_ms_seen) - 1))]
+
+        print(f"Brain: median {statistics.median(brain_ms_seen):.0f} ms, "
+              f"p95 {p95:.0f} ms per picture")
+
+        if fps_median < MIN_LOOP_FPS:
+
+            print(f"WARNING: under {MIN_LOOP_FPS} pictures/s - quick hand "
+                  f"swipes may be missed on this machine")
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -153,7 +210,17 @@ def main():
              "anything swooping at the drone, then come back to eat"
     )
 
+    parser.add_argument(
+        "--stabilize",
+        action="store_true",
+        help="run the fly brain's DNg02 flight-motor neurons as a yaw "
+             "stabilizer in every state (with or without --scared)"
+    )
+
     args = parser.parse_args()
+
+    # The loop-rate tuning was done on one laptop - say which one this is
+    print("Machine:", platform.node(), platform.machine(), platform.mac_ver()[0])
 
 
     # ========================================================
@@ -265,7 +332,7 @@ def main():
         # BRAIN: eating behaviour (+ fly brain with --scared)
         # ====================================================
 
-        if args.scared:
+        if args.scared or args.stabilize:
 
             print("Starting the fly brain (takes a few seconds)...")
 
@@ -273,7 +340,8 @@ def main():
             detector,
             tello,
             frame_read,
-            scared=args.scared
+            scared=args.scared,
+            stabilize=args.stabilize
         )
 
         # Shorthands for the screen / flight log below
@@ -353,6 +421,16 @@ def main():
         # Set by the 'h' key, written into the next flight-log row
         hand_mark = False
 
+        # Pictures per second through the brain, and the brain's ms per
+        # picture - for the summary at the end (see print_loop_summary)
+        last_step_time = None
+
+        fps = 0.0
+
+        fps_seen = []
+
+        brain_ms_seen = []
+
 
         while True:
 
@@ -417,6 +495,20 @@ def main():
 
             detections = brain.detections
 
+            step_time = time.time()
+
+            if last_step_time is not None:
+
+                fps = 1.0 / max(1e-3, step_time - last_step_time)
+
+                fps_seen.append(fps)
+
+            last_step_time = step_time
+
+            if fear is not None and fear.armed:
+
+                brain_ms_seen.append(fear.brain_ms)
+
             # Boxes from the latest detection (may be 1-2 pictures old)
             detector.annotate(frame, detections)
 
@@ -469,6 +561,10 @@ def main():
                 f"{fear.loom_in[1]:.2f}" if fear else "",
                 "HAND" if hand_mark else "",
                 ("yes" if fear.self_moving else "") if fear else "",
+                f"{fps:.1f}",
+                f"{fear.brain_ms:.0f}" if fear else "",
+                *(dng02_log_fields(fear, behaviour) if fear and fear.stabilize
+                  else [""] * 7),
             ])
 
             log_file.flush()
@@ -614,6 +710,33 @@ def main():
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.65,
                     (0, 0, 255) if scared else (0, 255, 255),
+                    2
+                )
+
+                if fear.stabilize:
+
+                    d = fear.brain.dng02
+
+                    cv2.putText(
+                        frame,
+                        f"DNg02 L={d.get('n_left', 0):2d} R={d.get('n_right', 0):2d}  "
+                        f"steer={d.get('steer', 0.0):+.2f}  "
+                        f"rot={fear.dng02_rotation:+.2f}px  "
+                        f"yaw {int(fear.intended_yaw_rc):+d} + {fear.dng02_yaw_rc:+d}",
+                        (10, 210),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.65,
+                        (0, 255, 255),
+                        2
+                    )
+
+                cv2.putText(
+                    frame,
+                    f"LOOP: {fps:.0f}/s  BRAIN: {fear.brain_ms:.0f} ms",
+                    (10, 240),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65,
+                    (0, 255, 255),
                     2
                 )
 
@@ -790,6 +913,8 @@ def main():
         cv2.destroyAllWindows()
 
         log_file.close()
+
+        print_loop_summary(fps_seen, brain_ms_seen)
 
         if brain is not None:
 

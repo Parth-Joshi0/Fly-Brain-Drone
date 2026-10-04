@@ -38,6 +38,7 @@ import time
 from Drone.drone_interface import DroneInterface
 
 RC_SPEED_SCALE = 60.0   # percent per m/s - ASSUMED, see module docstring
+RC_YAW_RATE_AT_100 = 1.5  # rad/s at 100% yaw RC - ASSUMED, see module docstring
 MAX_RC_PERCENT = 100
 
 # The Tello reports yaw increasing CLOCKWISE (turning right); this project's
@@ -78,7 +79,7 @@ def _mps_to_rc(speed_mps):
     return max(-MAX_RC_PERCENT, min(MAX_RC_PERCENT, round(speed_mps * RC_SPEED_SCALE)))
 
 
-def _rate_to_rc(rate_rad_s, rate_at_100=1.5):
+def _rate_to_rc(rate_rad_s, rate_at_100=RC_YAW_RATE_AT_100):
     """rate_at_100: assumed yaw rate (rad/s) at 100% yaw RC - also unverified,
     see module docstring."""
     return max(-MAX_RC_PERCENT, min(MAX_RC_PERCENT, round(rate_rad_s / rate_at_100 * 100)))

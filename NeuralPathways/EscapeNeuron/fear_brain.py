@@ -14,6 +14,20 @@ clear back-off, then come back and keep eating). The brain's own dodge
 command isn't used: on the real Tello it only pushed for ~0.17 s, far
 too short to see.
 
+With stabilize=True the same brain also runs the DNg02 flight-motor
+population (StabilizerNeuron/) and becomes the drone's yaw stabilizer,
+in every behaviour state:
+
+    camera frame -> flow -> derotate by the COMMANDED turn (efference copy)
+                 -> signed_hemifield_flow rotation -> DNg02 left/right
+                 -> steer -> dng02_yaw_rc, added to the behaviour's yaw
+
+The efference copy is what lets it stay on while the drone turns on
+purpose (the 360 scan, centring on the banana): the image motion the
+behaviour's own yaw command should cause is subtracted before DNg02
+sees it, so only rotation nobody asked for - drift, a bump, wind -
+gets corrected. See EFFERENCE_PIXELS_PER_RADIAN.
+
 The brain needs Brian2, which lives in its own venv (.venv-brain) so it
 can't disturb the banana detector's packages. FLYBRAIN_PYTHON is pointed
 at it here unless the caller already set it.
@@ -32,9 +46,10 @@ _BRAIN_PYTHON = REPO_ROOT / ".venv-brain" / "bin" / "python"
 if _BRAIN_PYTHON.exists():
     os.environ.setdefault("FLYBRAIN_PYTHON", str(_BRAIN_PYTHON))
 
-from NeuralPathways.flybrain_controller import FlyBrainController, ESCAPE_STATE_THRESHOLD
-from Drone.tello_drone import TelloDrone, RC_SPEED_SCALE
-from NeuralPathways.EscapeNeuron.optical_flow import LoomingDetector, compute_flow, derotate_flow, grid_flow_strengths
+from NeuralPathways.flybrain_controller import FlyBrainController, ESCAPE_STATE_THRESHOLD, DNG02_YAW_AUTHORITY
+from Drone.tello_drone import TelloDrone, RC_SPEED_SCALE, RC_YAW_RATE_AT_100, _rate_to_rc
+from NeuralPathways.EscapeNeuron.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
+                                                      grid_flow_strengths, signed_hemifield_flow)
 
 
 # Same values as Drone/tests/tello_escape_flight_test.py
@@ -85,9 +100,32 @@ WARMUP_FRAMES = 15
 ARM_GRACE_SECONDS = 2.0
 
 
+# --- DNg02 stabilizer (stabilize=True only) ---
+
+# EFFERENCE COPY: px of horizontal flow per radian of the drone's own
+# COMMANDED turn, subtracted before DNg02 sees the flow. The Tello's real
+# figure isn't pinned down - 106-184 measured at flight yaw rates, a
+# calibration lower bound of 208 (dng02_calibrate3.log) - and this is
+# deliberately NOT the measured-rate derotation tello_optomotor_flight_test.py
+# uses, because here a wrong value can't flip the loop's sign: it only
+# multiplies the commanded part, so with the true figure k the drone
+# settles at (this / k) x the turn rate the behaviour asked for (0.75-1.3x
+# over the measured range) instead of fighting the turn. Uncommanded
+# rotation always reaches DNg02 at full strength, with the right sign.
+EFFERENCE_PIXELS_PER_RADIAN = 140.0
+
+# rad/s of yaw at |steer| = 1. tello_optomotor_flight_test.py flew 0.6
+# (opto_fly2.log: corr -0.77, no oscillation), but derotated by the MEASURED
+# rate at 75 px/rad, which left only (k - 75) px/rad of a drift visible to
+# DNg02. Without that measured-rate cancel all k px/rad reach it, ~2x the
+# loop gain, so this is 0.6 x (140 - 75) / 140 to keep the flown loop gain.
+# Unflown in this form - check a hover in the flight log before raising it.
+DNG02_TELLO_YAW_GAIN = 0.3
+
+
 class FearBrain:
 
-    def __init__(self, tello, frame_read):
+    def __init__(self, tello, frame_read, stabilize=False):
 
         self.looming = LoomingDetector(
             width=PROC_WIDTH,
@@ -95,8 +133,11 @@ class FearBrain:
             fov=VERTICAL_FOV
         )
 
-        # Builds the connectome network in a subprocess (a few seconds)
-        self.brain = FlyBrainController(bounds=None)
+        self.stabilize = stabilize
+
+        # Builds the connectome network in a subprocess (a few seconds);
+        # optomotor=True adds the DNg02 population to the same network
+        self.brain = FlyBrainController(bounds=None, optomotor=stabilize)
 
         # Remember the last loom request decide() sent to the brain
         # process (and the escape level it answered with), so extra
@@ -107,10 +148,15 @@ class FearBrain:
         send = self.brain._brain.request
 
         def remember(payload):
+            t0 = time.perf_counter()
             result = send(payload)
+            self.brain_ms += (time.perf_counter() - t0) * 1000
             if "loom_left" in payload:
                 self._last_payload = payload
                 self._last_escape = result.get("escape", 0.0)
+            # Replayed steps advance DNg02 too - keep its latest answer
+            if "dng02" in result:
+                self.brain.dng02 = result["dng02"]
             return result
 
         self.brain._brain.request = remember
@@ -143,6 +189,18 @@ class FearBrain:
         # Efference copy (see SELF_MOTION_RC)
         self.last_self_motion = 0.0
         self.self_moving = False
+
+        # DNg02 stabilizer: the behaviour's own yaw (rc) from the last
+        # command - its efference copy, see EFFERENCE_PIXELS_PER_RADIAN -
+        # and what DNg02 wants added to the next one
+        self.intended_yaw_rc = 0
+        self.dng02_rotation = 0.0
+        self.dng02_yaw_rc = 0
+
+        # ms spent in the brain subprocess for the latest picture -
+        # measured, because the loop-rate tuning (MAX_BRAIN_STEPS,
+        # BANANA_EVERY_N_SCARED) was done on one particular laptop
+        self.brain_ms = 0.0
 
 
     def start(self):
@@ -186,6 +244,8 @@ class FearBrain:
 
         flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0}
 
+        rotation = translation = 0.0
+
         if self.prev_gray is not None:
 
             raw_flow = compute_flow(self.prev_gray, gray)
@@ -194,9 +254,32 @@ class FearBrain:
                 derotate_flow(raw_flow, state["yaw_rate"], dt)
             )
 
+            if self.stabilize:
+
+                # DNg02 sees the flow minus what our own commanded turn
+                # should have caused (efference copy). rc yaw is
+                # +right; derotate_flow wants this project's +left.
+                commanded_rate = -self.intended_yaw_rc / 100 * RC_YAW_RATE_AT_100
+
+                hemi = signed_hemifield_flow(
+                    derotate_flow(raw_flow, commanded_rate, dt,
+                                  pixels_per_radian=EFFERENCE_PIXELS_PER_RADIAN)
+                )
+
+                rotation, translation = hemi["rotation"], hemi["translation"]
+
         self.prev_gray = gray
 
         flow.update({f"expansion_{side}": v for side, v in self.expansion.items()})
+
+        # Only read by decide() with optomotor on (zero drive otherwise)
+        flow["rotation"], flow["translation"] = rotation, translation
+
+        self.dng02_rotation = rotation
+
+        self.dng02_yaw_rc = 0
+
+        self.brain_ms = 0.0
 
         self.frames += 1
 
@@ -249,6 +332,21 @@ class FearBrain:
         )
 
 
+        # DNg02 stabilizer - same term flybrain_controller's
+        # dng02_yaw_rate() adds (steer opposes uncommanded rotation,
+        # faded out as the escape level rises), at the Tello's own gain.
+        # Runs whether or not we're moving on purpose: the efference
+        # copy already took our own turn out of what it sees.
+        if self.stabilize:
+
+            yaw_rate = -DNG02_TELLO_YAW_GAIN * self.brain.dng02.get("steer", 0.0) * (1.0 - level)
+
+            yaw_rate = max(-DNG02_YAW_AUTHORITY, min(DNG02_YAW_AUTHORITY, yaw_rate))
+
+            # +left rad/s -> Tello's +right rc
+            self.dng02_yaw_rc = _rate_to_rc(-yaw_rate)
+
+
         # Moving on purpose? Then what the eyes see is our own motion.
         self.self_moving = now - self.last_self_motion < SELF_MOTION_HOLD
 
@@ -286,9 +384,13 @@ class FearBrain:
         return False
 
 
-    def record_command(self, lr, fb, ud=0, yaw=0):
+    def record_command(self, lr, fb, ud=0, yaw=0, intended_yaw=None):
         """Tell the brain what rc command was just sent: for dead
-        reckoning, and as the efference copy (see SELF_MOTION_RC)."""
+        reckoning, and as the efference copy (see SELF_MOTION_RC).
+        intended_yaw: the behaviour's yaw before DNg02's correction was
+        added - the turn DNg02 shouldn't fight (defaults to yaw)."""
+
+        self.intended_yaw_rc = yaw if intended_yaw is None else intended_yaw
 
         self.drone.target_vx = fb / RC_SPEED_SCALE
 

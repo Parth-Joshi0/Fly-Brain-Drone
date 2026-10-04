@@ -41,6 +41,8 @@ Exists because the DNg02 steering term uses the *opposite* sign convention to DN
 
 **Note:** with nothing moving, `steer` sits around +0.06 rather than 0 (residual population asymmetry, well under `OPTOMOTOR_STATE_THRESHOLD`, but watch for it on a first flight).
 
+In the banana-eating drone brain, DNg02 runs as a yaw stabilizer in every state with `python Drone/tello_camera.py --stabilize` - see `../ScaredEating/README.md` for how it's mixed in (efference copy, gain) and `../ScaredEating/Tests/test_stabilizer_wiring.py` for its tests.
+
 For the real-hardware flying versions of these checks — table-top perception (`tello_dng02_test.py`) and the first actual flying optomotor test (`tello_optomotor_flight_test.py`) — see `Drone/Tests/` and `Drone/README.md`.
 
 ## Notes
