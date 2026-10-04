@@ -1,4 +1,4 @@
-# Fly-Brain Rover (FruityFly Drone)
+# Fruity Fly Drone
 
 > **Note:** This project is still being actively developed and is bound to
 > change. The repo will be further cleaned up later.
