@@ -4,8 +4,8 @@ Headless check of the live brain diagram - no drone, no simulator, no brian2.
 Drives brain_diagram.attach() on a FAKE brain that sends what
 fly_brain_controller.py does (handshake neuron_ids, per-step "spiked") through
 quiet -> left-eye loom -> reset, and checks that attach() is transparent, that
-the left LC4/LPLC2 somata glow (and the right ones don't) and the region bars
-agree, that a reset clears both, and what a repaint costs.
+the left LC4/LPLC2 somata glow (and the right ones don't) and the neuron list
+agrees, that a reset clears both, and what a repaint costs.
 
     python NeuralPathways/BrainView/Tests/test_brain_diagram.py
     python NeuralPathways/BrainView/Tests/test_brain_diagram.py --out some/dir   # save PNG snapshots
@@ -99,9 +99,9 @@ def main():
     quiet, loom = frames["quiet"], frames["loom_left"]
     check(glow(loom, "left") > glow(quiet, "left") + 20, "left LC4/LPLC2 somata glow during a left loom")
     check(abs(glow(loom, "right") - glow(quiet, "right")) < 3, "right LC4/LPLC2 somata stay dark")
-    region = view.region_names.index
-    check(view.counts[region("optic lobe L")] > 0 and view.counts[region("optic lobe R")] == 0,
-          "region bars: optic lobe L counts the spikes, optic lobe R none")
+    lc4 = 2 * view.type_names.index("LC4")
+    check(view.counts[lc4] > 0 and view.counts[lc4 + 1] == 0,
+          "neuron list: left LC4 cells firing, right LC4 none")
     ctrl.reset()
     check(not view.heat.any() and not view.peak.any(), "a reset request clears the glow and the bars")
     mean = statistics.fmean(ms)

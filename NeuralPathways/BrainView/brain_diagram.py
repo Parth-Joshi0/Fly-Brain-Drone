@@ -2,8 +2,10 @@
 Live picture of the fly brain at work: the whole brain drawn as a cloud of its
 real neurons (frontal view, baked by build_brain_atlas.py), with the 418 cells
 fly_brain_controller.py simulates glowing where they actually sit each time
-they spike, fading over ~0.3 s. Below it: spikes this tick per brain region
-(with a peak-hold tick) and a key to the populations and colours. Modelled on the brain view HUD in
+they spike, fading over ~0.3 s. Below it: which neurons are firing - for each
+simulated cell type and side, how many of its cells spiked this tick (with a
+peak-hold tick) - and a key to the cell types and colours. Modelled on the
+brain view HUD in
 blendi-remade/fly-brain-minecraft, cut down to stay cheap next to the
 simulator.
 
@@ -59,15 +61,17 @@ class BrainView:
             bg = a["background"]
             self.row_of = {int(rid): i for i, rid in enumerate(a["circuit_ids"])}
             self.points = [(int(x), int(y) + HEADER_H) for x, y in a["circuit_px"]]
-            self.cell_region = a["circuit_region"].astype(np.intp)
+            region = a["circuit_region"]
+            self.cell_type = a["circuit_type"].astype(np.intp)    # type * 2 + (0 L / 1 R)
+            self.type_names = [str(n) for n in a["type_names"]]
             names = [str(n) for n in a["region_names"]]
             colors = [tuple(int(c) for c in rgb) for rgb in a["region_colors"]]
-        # Bars only for the regions the simulated cells are in - the rest
-        # could never move.
-        self.region_names = names
-        self.bar_regions = sorted(set(self.cell_region.tolist()))
-        self.counts = np.zeros(len(names))
-        self.peak = np.zeros(len(names))
+        n_groups = 2 * len(self.type_names)
+        self.group_size = np.maximum(np.bincount(self.cell_type, minlength=n_groups), 1)
+        # Each type + side drawn in the colour of the region its cells sit in.
+        self.group_color = [colors[region[np.flatnonzero(self.cell_type == g)[0]]] for g in range(n_groups)]
+        self.counts = np.zeros(n_groups)   # cells of each type + side that spiked this tick
+        self.peak = np.zeros(n_groups)
         self.background = self._draw_static(bg, names, colors)
         self.heat = np.zeros(len(self.points))
         self.rows = np.zeros(0, dtype=np.intp)   # brain-local index -> atlas row (-1 = unknown)
@@ -77,20 +81,23 @@ class BrainView:
         self.last_frame = None
 
     def _draw_static(self, bg, names, colors):
-        """Header strip, map, bar labels and legend - drawn once; show() only
-        adds the glow, the bar fills and the numbers."""
+        """Header strip, map, neuron list labels and legend - drawn once;
+        show() only adds the glow, the bar fills and the numbers."""
         w = bg.shape[1]
-        self.bars_y = HEADER_H + bg.shape[0] + 26
-        key_y = self.bars_y + len(self.bar_regions) * ROW_H + 22
+        self.bars_y = HEADER_H + bg.shape[0] + 38
+        key_y = self.bars_y + len(self.type_names) * ROW_H + 22
         img = np.full((key_y + (len(KEY) + 2) * ROW_H + 4, w, 3), 11, np.uint8)
         img[HEADER_H:HEADER_H + bg.shape[0]] = bg
-        self.bar_x, self.bar_w = 110, w - 150
-        self.colors = colors
-        _text(img, "SPIKES THIS TICK BY REGION", 6, self.bars_y - 8, MUTED)
-        for i, r in enumerate(self.bar_regions):
-            y = self.bars_y + i * ROW_H
-            _text(img, names[r], 6, y + 8, colors[r])
-            cv2.rectangle(img, (self.bar_x, y + 1), (self.bar_x + self.bar_w, y + 8), BAR_BG, -1)
+        # Two columns, left-side cells then right-side cells: bar, then "n/N".
+        self.col_x, self.bar_w = (90, 268), 100
+        _text(img, "NEURONS FIRING THIS TICK  (cells spiking / cells simulated)", 6, self.bars_y - 22, MUTED)
+        for x, side in zip(self.col_x, ("left", "right")):
+            _text(img, side, x, self.bars_y - 6, MUTED)
+        for t, name in enumerate(self.type_names):
+            y = self.bars_y + t * ROW_H
+            _text(img, name, 6, y + 8, self.group_color[2 * t])
+            for x in self.col_x:
+                cv2.rectangle(img, (x, y + 1), (x + self.bar_w, y + 8), BAR_BG, -1)
         _text(img, "KEY", 6, key_y - 8, MUTED)
         for i, (name, region, what) in enumerate(KEY):
             y = key_y + i * ROW_H + 8
@@ -126,7 +133,8 @@ class BrainView:
         rows = rows[rows >= 0]
         self.heat[rows] = 1.0
         self.spikes = len(spiked)
-        self.counts = np.bincount(self.cell_region[rows], minlength=len(self.counts))
+        # Cells that fired, not spikes: a cell that fired twice counts once.
+        self.counts = np.bincount(self.cell_type[np.unique(rows)], minlength=len(self.counts))
         self.peak = np.maximum(self.peak * PEAK_DECAY, self.counts)
 
     def _decay(self):
@@ -145,16 +153,17 @@ class BrainView:
             v = min(1.0, self.heat[i])
             cv2.circle(img, self.points[i], 2, tuple(int(c) for c in MARKER + (HOT - MARKER) * v), -1)
         _text(img, f"{self.state}   {self.spikes} spk/tick", 6, 14, scale=0.4)
-        top = max(1.0, self.peak.max())
-        for i, r in enumerate(self.bar_regions):
-            y = self.bars_y + i * ROW_H
-            fill = int(self.counts[r] / top * self.bar_w)
-            if fill:
-                cv2.rectangle(img, (self.bar_x, y + 1), (self.bar_x + fill, y + 8), self.colors[r], -1)
-            if self.peak[r] > 0:
-                px = self.bar_x + int(self.peak[r] / top * (self.bar_w - 1))
+        # Bars are the fraction of that type's cells firing, so a 1-cell DN
+        # and the 89 LPLC2 cells read on the same scale.
+        for g in range(len(self.counts)):
+            x, y = self.col_x[g % 2], self.bars_y + (g // 2) * ROW_H
+            n, size = int(self.counts[g]), self.group_size[g]
+            if n:
+                cv2.rectangle(img, (x, y + 1), (x + int(n / size * self.bar_w), y + 8), self.group_color[g], -1)
+            if self.peak[g] > 0:
+                px = x + int(self.peak[g] / size * (self.bar_w - 1))
                 cv2.line(img, (px, y + 1), (px, y + 8), (200, 200, 200), 1)
-            _text(img, str(int(self.counts[r])), img.shape[1] - 6, y + 8, align_right=True)
+            _text(img, f"{n}/{size}", x + self.bar_w + 46, y + 8, TEXT if n else MUTED, align_right=True)
         self.last_frame = img
         if self.display:
             if not self._window_open:

@@ -23,6 +23,8 @@ draw the spiking cells on top. Saved:
     circuit_ids   root ids of the 418 cells fly_brain_controller.py simulates
     circuit_px    their (x, y) pixel on the background
     circuit_region   which of REGIONS each one is in
+    circuit_type     TYPES index * 2 + (0 left / 1 right) for each one
+    type_names       TYPES, the rows of the diagram's neuron list
     region_names / region_colors   REGIONS, for the diagram's bars and legend
 
     python NeuralPathways/BrainView/build_brain_atlas.py
@@ -74,16 +76,23 @@ SUPER_CLASS_REGION = {
 # count with it - which also makes a one-sided loom readable off the bars.
 OPTIC_CLASSES = {"optic", "visual_projection", "visual_centrifugal"}
 MARKER = (102, 224, 255)   # faint yellow where the simulated cells sit
+# Neuron types the diagram lists, in display order. Each simulated cell is
+# saved as type * 2 + (0 left / 1 right).
+TYPES = ("LC4", "LPLC2", "DNp01", "DNp03", "DNp06", "DNg02", "drive pool")
 
 
-def circuit_ids():
+def circuit_cells():
+    """root id -> type * 2 + side for every simulated cell, sorted by root id."""
     with open(LOOMING_IDS_PATH) as f:
         looming = json.load(f)
     with open(DNG02_IDS_PATH) as f:
         dng02 = json.load(f)
-    cells = (looming["input_neurons"] + looming["output_neurons"]
-             + dng02["output_neurons"] + dng02["drive_neurons"])
-    return np.array(sorted({n["root_id"] for n in cells}), dtype=np.int64)
+    groups = ((looming["input_neurons"] + looming["output_neurons"], lambda n: n["cell_type"]),
+              (dng02["output_neurons"], lambda n: "DNg02"),        # DNg02_a, _b, ... -> one row
+              (dng02["drive_neurons"], lambda n: "drive pool"))
+    cells = {n["root_id"]: TYPES.index(name(n)) * 2 + (n["side"] == "right")
+             for group, name in groups for n in group}
+    return dict(sorted(cells.items()))
 
 
 def build():
@@ -126,7 +135,8 @@ def build():
     img[lit] = palette[per_class[:, lit].argmax(axis=0)] * bright[lit, None]
     img = img.reshape(h, MAP_W, 3)
 
-    want = circuit_ids()
+    cells = circuit_cells()
+    want = np.array(list(cells), dtype=np.int64)
     index = {rid: i for i, rid in enumerate(a["root_id"].to_numpy(np.int64))}
     missing = [rid for rid in want if rid not in index]
     if missing:
@@ -141,6 +151,8 @@ def build():
 
     np.savez_compressed(OUT_PATH, background=img, circuit_ids=want, circuit_px=cpx.astype(np.int16),
                         circuit_region=cls[rows].astype(np.int8),
+                        circuit_type=np.array(list(cells.values()), dtype=np.int8),
+                        type_names=np.array(TYPES),
                         region_names=np.array([n for n, _ in REGIONS]),
                         region_colors=np.array([c for _, c in REGIONS], dtype=np.uint8))
     print(f"{len(a)} neurons -> {MAP_W}x{h} px; {len(want)} circuit neurons placed")
