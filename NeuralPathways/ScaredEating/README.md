@@ -9,7 +9,7 @@ The "scared while eating" brain for the real Tello: the drone finds a banana, fl
 
 | File | What it does |
 |---|---|
-| `scared_eating_brain.py` | `ScaredEatingBrain`: one `step(picture) -> rc command` call per camera picture. Runs the fly brain on the clean picture first, the banana AI every 3rd picture (so the looming detector sees ~21 pictures/s, fast enough to catch a quick hand), then the eating behaviour, adds the DNg02 stabilizer's yaw (`stabilize=True`), and feeds the command back to the fly brain as its efference copy. Without `scared=True` or `stabilize=True` it's just the eating behaviour. |
+| `scared_eating_brain.py` | `ScaredEatingBrain`: one `step(picture) -> rc command` call per camera picture. Runs the fly brain on the clean picture first, then the eating behaviour with the latest banana AI result. The banana AI runs on its own background thread (YOLOv8 nano normally; the slower sharp-eyes zoomed look with YOLOv8 small while holding still to search), so the camera + fly brain loop never waits for it and stays fast enough (~15+ pictures/s) to catch a quick hand. Then it adds the DNg02 stabilizer's yaw (`stabilize=True`), and feeds the command back to the fly brain as its efference copy. Without `scared=True` or `stabilize=True` it's just the eating behaviour. |
 | `Tests/test_stabilizer_wiring.py` | Synthetic sliding pictures + fake Tello + the real brain: checks the DNg02 correction's sign, that a *commanded* turn isn't fought (efference copy), and that the sent yaw is behaviour + DNg02. `python NeuralPathways/ScaredEating/Tests/test_stabilizer_wiring.py` |
 
 Used by `Drone/tello_camera.py`, which does the camera, safety checks, screen, keys and flight log:
@@ -23,7 +23,7 @@ python Drone/tello_camera.py --fly --scared --stabilize   # + DNg02 stabilizer
 
 `SEARCH` (turn and look) → `APPROACH` (turn to face the banana and fly to it, slowing down near it) → `FEED` (hold still, eat) → `DONE` → `LAND`.
 
-Scared (Giant Fiber fired while holding still): `SCARED` (back straight off, 1 s) → `WAIT` (hover until the banana is seen again, at least 1 s) → `APPROACH` → `FEED` again, hunger where it left off. Repeats for every new wave.
+Scared (Giant Fiber fired while holding still): `SCARED` (back straight off, a quick 0.7 s jump at 60%) → `WAIT` (hover until the banana is seen again, at least 1 s) → `APPROACH` → `FEED` again, hunger where it left off. Repeats for every new wave.
 
 ## DNg02 stabilizer (`--stabilize`)
 

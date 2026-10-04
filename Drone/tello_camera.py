@@ -232,6 +232,20 @@ def main():
     # Full Tello resolution (960px) - sees the banana from further away
     detector = BananaDetector(detector_img_size=960)
 
+    # "Sharp eyes" for scanning / looking while holding still: YOLOv8
+    # small instead of nano. Far-away bananas (filling 1% of the picture)
+    # found 22/24 vs 7/24; with the zoomed-in look and a 0.30 sureness
+    # bar, 20-24/24 at 0.5-1% with no wrong boxes. 2x slower, so only
+    # used while still - nano keeps the loop fast for catching hands.
+    # Downloads itself the first time if missing (needs internet).
+    print("Loading sharp-eyes banana detector...")
+
+    sharp_detector = BananaDetector(
+        detector_img_size=960,
+        detector_conf_threshold=0.30,
+        yolo_weights=str(ROOT / "BananaModel" / "yolov8s.pt")
+    )
+
 
     # ========================================================
     # CONNECT TO TELLO
@@ -341,7 +355,8 @@ def main():
             tello,
             frame_read,
             scared=args.scared,
-            stabilize=args.stabilize
+            stabilize=args.stabilize,
+            sharp_detector=sharp_detector
         )
 
         # Shorthands for the screen / flight log below
@@ -491,7 +506,7 @@ def main():
 
                 yaw_deg = None
 
-            cmd = brain.step(frame, yaw_deg)
+            cmd = brain.step(frame, yaw_deg, flying)
 
             detections = brain.detections
 

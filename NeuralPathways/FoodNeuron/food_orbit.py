@@ -14,12 +14,15 @@ Fly-inspired food behaviour.
     -> LAND    5 s after eating (tello_camera.py lands when should_land)
 
     SCARED   (tello_camera.py --scared) the fly brain's Giant Fiber
-             fired: back straight away for 1 s - eating pauses
-    -> WAIT    hover and look for at least 2 s, and until the banana has
-               been clearly in view for 1 s (something held in front of
-               it blocks the view, so the drone stays back until it's
-               gone). Further scares are ignored - it's already backed off.
-    -> APPROACH  same as above. Can't see the banana (too far, or it
+             fired: back straight away (quick 0.7 s jump) - eating pauses
+    -> WAIT    steady for 0.3 s, then come back as soon as the coast is
+               clear: the fly brain sees nothing looming AND the banana
+               is in view (something held in front of it blocks the
+               view, so the drone stays back until it's gone). Further
+               scares are ignored - it's already backed off.
+    -> APPROACH  dash straight back (most of the distance it backed off),
+                 then the careful approach. Banana blocked mid-dash ->
+                 stop and WAIT again. Can't see the banana (too far, or it
                  flickers)? Creep straight forward until it has made up
                  all the distance it backed off, looking for it on the
                  way. Only the brain makes it back away - never the
@@ -97,22 +100,26 @@ FEED_RATE = 6.0
 
 # Pause and look, then turn SCAN_STEP_DEG, repeat. The camera sees
 # ~70 deg across, so 45 deg steps overlap a little and miss nothing;
-# 8 of them make a full 360 in ~15 s. The pauses matter: pictures
+# 8 of them make a full 360 in ~22 s. The pauses matter: pictures
 # taken while turning are blurred and the banana AI misses far-away
 # bananas in them, and while paused it uses the slower zoomed-in look
 # (see wants_zoom), which sees ~2x further.
 SCAN_STEP_DEG = 45
 
-SCAN_TURN_SPEED = 40
+SCAN_TURN_SPEED = 30
 
 # Stop turning after this long even if the compass hasn't reached
 # SCAN_STEP_DEG yet (or there's no compass - see DEG_PER_RC_S)
 SCAN_TURN_TIMEOUT = 2.5
 
-SCAN_PAUSE_TIME = 0.7
+# Long enough to be properly still before looking: in flight 10-02
+# 21:26 (0.7 s pause, turn command fading out gradually) only 9 of 394
+# scan pictures were taken while still - the rest were blurred
+SCAN_PAUSE_TIME = 1.2
 
 # Spotted something? Stop and keep looking this long to confirm it
-SCAN_CONFIRM_TIME = 1.2
+# (the sharp zoomed-in look takes ~0.4 s per picture)
+SCAN_CONFIRM_TIME = 2.0
 
 # A banana counts as found once seen in this many pictures within the
 # last CLEAR_WINDOW, at least SCAN_CONFIRM_SPAN apart
@@ -184,11 +191,12 @@ LAND_AFTER_EATING = 5.0
 # SCARED -> BACK AWAY -> COME BACK
 # ============================================================
 
-# Scared: back straight away - clear, but short (2 s at 50% went
-# much too far indoors)
-BACK_AWAY_SPEED = 40
+# Scared: back straight away - a quick jump like a fly's escape, but
+# short (2 s at 50% went much too far indoors). 60% for 0.7 s covers
+# about the same distance as the old 40% for 1 s, just snappier.
+BACK_AWAY_SPEED = 60
 
-BACK_AWAY_TIME = 1.0
+BACK_AWAY_TIME = 0.7
 
 # Fly toward the banana until it fills at least this
 # much of the screen (or as much as it did before the scare, if more).
@@ -207,23 +215,53 @@ APPROACH_MAX_SPEED = 15
 # Give up approaching after this long (eat from wherever we got to)
 APPROACH_MAX_TIME = 15.0
 
-# WAIT: always stay back at least this long after backing off...
-MIN_WAIT_TIME = 1.0
-
-# ...and come back once the banana has been seen more than once
-# recently: its sightings since we started waiting span at least
-# CLEAR_SPAN, the latest within CLEAR_SPAN (one banana-AI result
-# covers ~0.2 s of pictures, so this needs 2+ separate sightings).
-# Asking for an unbroken look instead kept resetting on the real
-# drone's flickery detection.
+# Banana sightings older than this are forgotten
 CLEAR_WINDOW = 1.0
 
-CLEAR_SPAN = 0.4
+
+# ============================================================
+# COME BACK FAST (after a scare, once the coast is clear)
+# ============================================================
+
+# After backing off, hold still this long before judging (lets the
+# drone stop and the looming from its own jump die down)
+SETTLE_TIME = 0.3
+
+# Coast is clear when the fly brain's escape level (set each picture
+# by ScaredEatingBrain from fear_brain.py) has stayed below this...
+QUIET_ESCAPE_LEVEL = 0.3
+
+# ...for this long, AND a fresh banana sighting is this recent
+QUIET_TIME = 0.3
+
+SEEN_RECENTLY = 0.5
+
+# WAIT looks with the fast banana AI first - right after backing off the
+# banana is still close and easy to see - and only switches to the slow
+# sharp-eyes look if it hasn't found it after this long
+SHARP_EYES_AFTER = 1.5
+
+# Dash straight back at this speed for this fraction of the distance we
+# backed off, steering toward the banana; then the careful approach
+# (slows down near it, so no overshoot)
+DASH_SPEED = 35
+
+DASH_FRACTION = 0.85
+
+# Coming back: carry on eating once the banana looks at least this big
+# a fraction of its size before the scare - no need to creep back to
+# exactly the same spot (the slow final creep was the longest part)
+RETURN_GOAL_FRACTION = 0.8
+
+# Banana out of sight this long mid-dash -> something moved in front:
+# stop and WAIT. (Looming is ignored while moving - efference copy -
+# so the brain can't catch a wave mid-dash; a blocked banana can.)
+DASH_BLOCKED_TIME = 0.5
 
 # Banana never seen while waiting (maybe too far to spot): after this
 # long, creep back anyway - if the object is still there, approaching
 # it looms and the brain scares us off again.
-WAIT_GIVE_UP_TIME = 5.0
+WAIT_GIVE_UP_TIME = 3.0
 
 # Creeping back blind: slowly, until we've made up the distance we
 # backed off (tracked as speed x time, x a bit extra for the coasting
@@ -322,6 +360,15 @@ class FoodOrbitBehaviour:
 
         # When the banana was seen recently (for WAIT's "is it clear?")
         self.sightings = deque()
+
+        # Fly brain's escape level, set each picture by ScaredEatingBrain
+        # (stays 0 without the fly brain, e.g. the simulator)
+        self.escape_level = 0.0
+
+        self.quiet_since = None
+
+        # Come back fast: dash until backed_off drops to this
+        self.dash_until = 0.0
 
         # tello_camera.py lands when this becomes True
         self.should_land = False
@@ -472,8 +519,19 @@ class FoodOrbitBehaviour:
 
         return (
             (self.state == "SCAN" and self.scan_phase == "pause")
-            or self.state in ("LOOK", "WAIT")
+            or self.state == "LOOK"
+            or (
+                self.state == "WAIT"
+                and self._clock() - self.wait_start_time >= SHARP_EYES_AFTER
+            )
         )
+
+
+    def _stop_turning(self):
+        """Hover with the turn cut to zero at once (not faded out like
+        _hover()), so scan pauses are actually still."""
+
+        return self._direct(0, 0, 0, 0)
 
 
     def _start_scan(self, now):
@@ -527,7 +585,7 @@ class FoodOrbitBehaviour:
 
                 self.scan_spotted = False
 
-                return self._hover()
+                return self._stop_turning()
 
 
             return self._smooth_command(0, 0, 0, SCAN_TURN_SPEED * self.search_dir)
@@ -538,7 +596,7 @@ class FoodOrbitBehaviour:
 
         if now - self.phase_start_time < pause:
 
-            return self._hover()
+            return self._stop_turning()
 
 
         # Done looking here - full circle?
@@ -556,7 +614,7 @@ class FoodOrbitBehaviour:
 
                 self.land_reason = f"no banana found after {MAX_SCANS} full 360s"
 
-                return self._hover()
+                return self._stop_turning()
 
 
         # Next turn
@@ -621,6 +679,9 @@ class FoodOrbitBehaviour:
 
         self.approach_after_scare = after_scare
 
+        # Dash back most of the way we backed off (see DASH_FRACTION)
+        self.dash_until = self.backed_off * (1 - DASH_FRACTION) if after_scare else self.backed_off
+
         if not after_scare:
             self.size_before_scare = 0.0
 
@@ -642,11 +703,16 @@ class FoodOrbitBehaviour:
         detections,
         frame_width,
         frame_height,
-        yaw_deg=None
+        yaw_deg=None,
+        fresh=True
     ):
         """yaw_deg: the drone's compass heading (Tello's yaw, degrees),
         if known - used to count the scan's turns. Without it, heading
-        is estimated from the yaw commands (see DEG_PER_RC_S)."""
+        is estimated from the yaw commands (see DEG_PER_RC_S).
+
+        fresh: False when `detections` is a reused earlier banana-AI
+        result (it runs slower than the camera, see ScaredEatingBrain) -
+        then it isn't counted again as a new sighting."""
 
         now = self._clock()
 
@@ -676,13 +742,24 @@ class FoodOrbitBehaviour:
         target_visible = target is not None
 
 
-        if target_visible:
+        if target_visible and fresh:
 
             self.sightings.append(now)
 
         while self.sightings and now - self.sightings[0] > CLEAR_WINDOW:
 
             self.sightings.popleft()
+
+
+        # Is the fly brain quiet (nothing looming)?
+        if self.escape_level < QUIET_ESCAPE_LEVEL:
+
+            if self.quiet_since is None:
+                self.quiet_since = now
+
+        else:
+
+            self.quiet_since = None
 
 
         if target_visible:
@@ -728,22 +805,25 @@ class FoodOrbitBehaviour:
 
             recent = [t for t in self.sightings if t >= self.wait_start_time]
 
-            banana_in_view = (
-                len(recent) > 0
-                and recent[-1] - recent[0] >= CLEAR_SPAN
-                and now - recent[-1] <= CLEAR_SPAN
+            banana_in_view = len(recent) > 0 and now - recent[-1] <= SEEN_RECENTLY
+
+            quiet = (
+                self.quiet_since is not None
+                and now - self.quiet_since >= QUIET_TIME
             )
+
+            settled = now - self.wait_start_time >= SETTLE_TIME
 
             if banana_in_view:
 
-                if now - self.wait_start_time >= MIN_WAIT_TIME:
+                if settled and quiet:
 
-                    # Food in view, nothing in the way - come back
+                    # Food in view, nothing looming - come back fast
                     self._start_approach(now, True, after_scare=True)
 
             else:
 
-                if now - self.wait_start_time >= WAIT_GIVE_UP_TIME:
+                if now - self.wait_start_time >= WAIT_GIVE_UP_TIME and quiet:
 
                     # Can't see it at all - creep back and let the
                     # brain scare us off if something's still there
@@ -813,17 +893,32 @@ class FoodOrbitBehaviour:
                 return self._hover()
 
 
+            # Coming back fast after a scare: dash most of the way
+            dashing = self.approach_after_scare and self.backed_off > self.dash_until
+
+            if dashing and now - self.last_target_time > DASH_BLOCKED_TIME:
+
+                # Banana blocked mid-dash - something's in front: stop
+                self.state = "WAIT"
+
+                self.wait_start_time = now
+
+                return self._direct(0, 0, 0, 0)
+
+
             # Short flicker: keep going forward - the banana's straight
             # ahead. (Stopping on every flicker made far-away approaches
             # stand still most of the time.)
             if not target_visible:
 
-                self.backed_off = max(0.0, self.backed_off - self.approach_speed * dt)
+                speed = DASH_SPEED if dashing else self.approach_speed
 
-                return self._smooth_command(0, self.approach_speed, 0, 0)
+                self.backed_off = max(0.0, self.backed_off - speed * dt)
+
+                return self._smooth_command(0, speed, 0, 0)
 
 
-            goal = max(EAT_SIZE_RATIO, self.size_before_scare)
+            goal = max(EAT_SIZE_RATIO, self.size_before_scare * RETURN_GOAL_FRACTION)
 
             if self.last_box_ratio >= goal or elapsed > APPROACH_MAX_TIME:
 
@@ -837,17 +932,25 @@ class FoodOrbitBehaviour:
                 )
 
 
-            # Fly toward it, slowing down as it gets bigger
-            forward = clamp(
-                (goal - self.last_box_ratio) * APPROACH_GAIN,
-                APPROACH_MIN_SPEED,
-                APPROACH_MAX_SPEED
-            )
+            # Fly toward it, slowing down as it gets bigger (dashing:
+            # full DASH_SPEED until most of the way back)
+            if dashing:
+
+                forward = DASH_SPEED
+
+            else:
+
+                forward = clamp(
+                    (goal - self.last_box_ratio) * APPROACH_GAIN,
+                    APPROACH_MIN_SPEED,
+                    APPROACH_MAX_SPEED
+                )
 
             self.backed_off = max(0.0, self.backed_off - forward * dt)
 
-            # Keep this speed through flickers (see above)
-            self.approach_speed = forward
+            # Keep this speed through flickers (see above) - not the dash's
+            if not dashing:
+                self.approach_speed = forward
 
             return self._keep_in_frame(
                 target,

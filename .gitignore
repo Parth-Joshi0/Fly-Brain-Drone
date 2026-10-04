@@ -6,6 +6,7 @@ Fly-Brain/results
 README.roboflow.txt
 temp.py
 yolov8n.pt
+yolov8s.pt
 dataset
 flybrain_spikes.log
 Testing/tello_neuron_test.log
