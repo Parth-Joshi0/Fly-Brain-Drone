@@ -2,7 +2,8 @@
 Live picture of the fly brain at work: the whole brain drawn as a cloud of its
 real neurons (frontal view, baked by build_brain_atlas.py), with the 418 cells
 fly_brain_controller.py simulates glowing where they actually sit each time
-they spike, fading over ~0.3 s. Modelled on the brain view HUD in
+they spike, fading over ~0.3 s. Below it: spikes this tick per brain region
+(with a peak-hold tick) and a key to the populations and colours. Modelled on the brain view HUD in
 blendi-remade/fly-brain-minecraft, cut down to stay cheap next to the
 simulator.
 
@@ -30,6 +31,24 @@ HEADER_H = 20
 HEAT_TAU_S = 0.30
 MARKER = np.array((102, 224, 255), dtype=float)   # BGR, same as the baked markers
 HOT = np.array((200, 250, 255), dtype=float)      # what a fresh spike glows
+PEAK_DECAY = 0.97                                 # per brain step, the bars' peak-hold tick
+ROW_H = 13
+TEXT, MUTED, BAR_BG = (232, 232, 232), (156, 147, 138), (45, 38, 32)
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+# (name, region it sits in - for its colour, what it does)
+KEY = (
+    ("LC4 / LPLC2", "optic lobe L", "looming detectors, both eyes"),
+    ("DNp01", "descending", "Giant Fiber - escape"),
+    ("DNp03 / DNp06", "descending", "brake / turn away from the loom"),
+    ("DNg02", "descending", "wingbeat amplitude - thrust, steer"),
+    ("drive pool", "central brain", "central inputs to DNg02"),
+)
+
+
+def _text(img, text, x, y, color=TEXT, scale=0.36, align_right=False):
+    if align_right:
+        x -= cv2.getTextSize(text, FONT, scale, 1)[0][0]
+    cv2.putText(img, text, (int(x), int(y)), FONT, scale, color, 1, cv2.LINE_AA)
 
 
 class BrainView:
@@ -40,13 +59,54 @@ class BrainView:
             bg = a["background"]
             self.row_of = {int(rid): i for i, rid in enumerate(a["circuit_ids"])}
             self.points = [(int(x), int(y) + HEADER_H) for x, y in a["circuit_px"]]
-        self.background = np.vstack([np.full((HEADER_H, bg.shape[1], 3), 11, np.uint8), bg])
+            self.cell_region = a["circuit_region"].astype(np.intp)
+            names = [str(n) for n in a["region_names"]]
+            colors = [tuple(int(c) for c in rgb) for rgb in a["region_colors"]]
+        # Bars only for the regions the simulated cells are in - the rest
+        # could never move.
+        self.region_names = names
+        self.bar_regions = sorted(set(self.cell_region.tolist()))
+        self.counts = np.zeros(len(names))
+        self.peak = np.zeros(len(names))
+        self.background = self._draw_static(bg, names, colors)
         self.heat = np.zeros(len(self.points))
         self.rows = np.zeros(0, dtype=np.intp)   # brain-local index -> atlas row (-1 = unknown)
         self.state, self.spikes = "-", 0
         self._last_decay = self._last_shown = time.monotonic()
         self._window_open = False
         self.last_frame = None
+
+    def _draw_static(self, bg, names, colors):
+        """Header strip, map, bar labels and legend - drawn once; show() only
+        adds the glow, the bar fills and the numbers."""
+        w = bg.shape[1]
+        self.bars_y = HEADER_H + bg.shape[0] + 26
+        key_y = self.bars_y + len(self.bar_regions) * ROW_H + 22
+        img = np.full((key_y + (len(KEY) + 2) * ROW_H + 4, w, 3), 11, np.uint8)
+        img[HEADER_H:HEADER_H + bg.shape[0]] = bg
+        self.bar_x, self.bar_w = 110, w - 150
+        self.colors = colors
+        _text(img, "SPIKES THIS TICK BY REGION", 6, self.bars_y - 8, MUTED)
+        for i, r in enumerate(self.bar_regions):
+            y = self.bars_y + i * ROW_H
+            _text(img, names[r], 6, y + 8, colors[r])
+            cv2.rectangle(img, (self.bar_x, y + 1), (self.bar_x + self.bar_w, y + 8), BAR_BG, -1)
+        _text(img, "KEY", 6, key_y - 8, MUTED)
+        for i, (name, region, what) in enumerate(KEY):
+            y = key_y + i * ROW_H + 8
+            _text(img, name, 6, y, colors[names.index(region)])
+            _text(img, what, 110, y, MUTED)
+        y = key_y + len(KEY) * ROW_H + 8
+        cv2.circle(img, (9, y - 3), 2, tuple(int(c) for c in MARKER), -1)
+        _text(img, "simulated cell", 16, y, MUTED)
+        cv2.circle(img, (119, y - 3), 2, tuple(int(c) for c in HOT), -1)
+        _text(img, "spiking now  (fades over 0.3 s)", 126, y, MUTED)
+        x = 6
+        for r in (names.index("sensory"), names.index("motor"), names.index("other")):
+            _text(img, names[r], x, y + ROW_H, colors[r])
+            x += 70
+        _text(img, "also shown in the cloud", x, y + ROW_H, MUTED)
+        return img
 
     def bind(self, controller):
         ids = (getattr(controller._brain, "info", None) or {}).get("neuron_ids", [])
@@ -55,14 +115,19 @@ class BrainView:
     def record(self, payload, result):
         if payload.get("reset"):
             self.heat[:] = 0.0
+            self.counts[:] = 0.0
+            self.peak[:] = 0.0
             self.spikes = 0
             return
         spiked = np.asarray(result.get("spiked", []), dtype=np.intp)
         spiked = spiked[(spiked >= 0) & (spiked < len(self.rows))]
         rows = self.rows[spiked]
         self._decay()
-        self.heat[rows[rows >= 0]] = 1.0
+        rows = rows[rows >= 0]
+        self.heat[rows] = 1.0
         self.spikes = len(spiked)
+        self.counts = np.bincount(self.cell_region[rows], minlength=len(self.counts))
+        self.peak = np.maximum(self.peak * PEAK_DECAY, self.counts)
 
     def _decay(self):
         now = time.monotonic()
@@ -79,13 +144,22 @@ class BrainView:
         for i in np.flatnonzero(self.heat > 0.05):
             v = min(1.0, self.heat[i])
             cv2.circle(img, self.points[i], 2, tuple(int(c) for c in MARKER + (HOT - MARKER) * v), -1)
-        cv2.putText(img, f"{self.state}   {self.spikes} spk/tick", (6, 14),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (232, 232, 232), 1, cv2.LINE_AA)
+        _text(img, f"{self.state}   {self.spikes} spk/tick", 6, 14, scale=0.4)
+        top = max(1.0, self.peak.max())
+        for i, r in enumerate(self.bar_regions):
+            y = self.bars_y + i * ROW_H
+            fill = int(self.counts[r] / top * self.bar_w)
+            if fill:
+                cv2.rectangle(img, (self.bar_x, y + 1), (self.bar_x + fill, y + 8), self.colors[r], -1)
+            if self.peak[r] > 0:
+                px = self.bar_x + int(self.peak[r] / top * (self.bar_w - 1))
+                cv2.line(img, (px, y + 1), (px, y + 8), (200, 200, 200), 1)
+            _text(img, str(int(self.counts[r])), img.shape[1] - 6, y + 8, align_right=True)
         self.last_frame = img
         if self.display:
             if not self._window_open:
                 cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(self.window, img.shape[1] * 2, img.shape[0] * 2)
+                cv2.resizeWindow(self.window, int(img.shape[1] * 1.5), int(img.shape[0] * 1.5))
                 self._window_open = True
             cv2.imshow(self.window, img)
 

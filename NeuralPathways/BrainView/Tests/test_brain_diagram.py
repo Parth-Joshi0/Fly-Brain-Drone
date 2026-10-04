@@ -4,8 +4,8 @@ Headless check of the live brain diagram - no drone, no simulator, no brian2.
 Drives brain_diagram.attach() on a FAKE brain that sends what
 fly_brain_controller.py does (handshake neuron_ids, per-step "spiked") through
 quiet -> left-eye loom -> reset, and checks that attach() is transparent, that
-the left LC4/LPLC2 somata glow (and the right ones don't), that a reset clears
-the glow, and what a repaint costs.
+the left LC4/LPLC2 somata glow (and the right ones don't) and the region bars
+agree, that a reset clears both, and what a repaint costs.
 
     python NeuralPathways/BrainView/Tests/test_brain_diagram.py
     python NeuralPathways/BrainView/Tests/test_brain_diagram.py --out some/dir   # save PNG snapshots
@@ -99,11 +99,14 @@ def main():
     quiet, loom = frames["quiet"], frames["loom_left"]
     check(glow(loom, "left") > glow(quiet, "left") + 20, "left LC4/LPLC2 somata glow during a left loom")
     check(abs(glow(loom, "right") - glow(quiet, "right")) < 3, "right LC4/LPLC2 somata stay dark")
+    region = view.region_names.index
+    check(view.counts[region("optic lobe L")] > 0 and view.counts[region("optic lobe R")] == 0,
+          "region bars: optic lobe L counts the spikes, optic lobe R none")
     ctrl.reset()
-    check(not view.heat.any(), "a reset request clears the glow")
+    check(not view.heat.any() and not view.peak.any(), "a reset request clears the glow and the bars")
     mean = statistics.fmean(ms)
     print(f"      decide()+repaint: mean {mean:.2f} ms")
-    check(mean < 3.0, "repaint is cheap (mean < 3 ms)")
+    check(mean < 5.0, "repaint is cheap (mean < 5 ms)")
 
     if args.out:
         out = Path(args.out)

@@ -22,6 +22,8 @@ draw the spiking cells on top. Saved:
                   faint yellow and L / R labels
     circuit_ids   root ids of the 418 cells fly_brain_controller.py simulates
     circuit_px    their (x, y) pixel on the background
+    circuit_region   which of REGIONS each one is in
+    region_names / region_colors   REGIONS, for the diagram's bars and legend
 
     python NeuralPathways/BrainView/build_brain_atlas.py
 
@@ -52,19 +54,25 @@ MARGIN = 6
 CLIP_PERCENTILE = 0.05     # ignore the outermost 0.05% of somata when framing
 VOXEL_NM = np.array([4.0, 4.0])
 
-# FlyWire super_class -> BGR colour (fly-brain-minecraft's region palette).
-# Visual projection neurons such as LC4/LPLC2 sit in the optic lobe, so they
-# take its colour.
-OPTIC = (176, 184, 63)
-COLORS = {
-    "optic": OPTIC, "visual_projection": OPTIC, "visual_centrifugal": OPTIC,
-    "central": (230, 176, 157), "endocrine": (230, 176, 157),
-    "descending": (255, 155, 91),
-    "ascending": (106, 154, 200),
-    "motor": (64, 160, 255),
-    "sensory": (110, 214, 85), "sensory_ascending": (110, 214, 85),
+# Regions and their BGR colours (fly-brain-minecraft's palette). The diagram
+# uses the same list for its spike bars and legend, so it is saved too.
+REGIONS = (
+    ("optic lobe L", (176, 184, 63)),
+    ("optic lobe R", (216, 224, 111)),
+    ("central brain", (230, 176, 157)),
+    ("descending", (255, 155, 91)),
+    ("ascending", (106, 154, 200)),
+    ("motor", (64, 160, 255)),
+    ("sensory", (110, 214, 85)),
+    ("other", (138, 138, 138)),
+)
+SUPER_CLASS_REGION = {
+    "central": 2, "endocrine": 2, "descending": 3, "ascending": 4, "motor": 5,
+    "sensory": 6, "sensory_ascending": 6,
 }
-OTHER = (138, 138, 138)
+# Visual projection neurons such as LC4/LPLC2 sit in the optic lobe, so they
+# count with it - which also makes a one-sided loom readable off the bars.
+OPTIC_CLASSES = {"optic", "visual_projection", "visual_centrifugal"}
 MARKER = (102, 224, 255)   # faint yellow where the simulated cells sit
 
 
@@ -97,15 +105,16 @@ def build():
     h = int(round((hi[1] - lo[1]) / scale)) + 2 * MARGIN
     px = np.round((xy - lo) / scale).astype(int) + MARGIN
 
-    # Per pixel: how many somata, and the colour most of them have.
-    names = list(COLORS) + ["other"]
-    cls = a["super_class"].map({n: i for i, n in enumerate(names)}).fillna(len(names) - 1).to_numpy(int)
+    # Per pixel: how many somata, and the region most of them are in.
+    sc, side = a["super_class"].fillna("").to_numpy(), a["side"].fillna("").to_numpy()
+    cls = np.array([(0 if sd == "left" else 1 if sd == "right" else 7) if c in OPTIC_CLASSES
+                    else SUPER_CLASS_REGION.get(c, 7) for c, sd in zip(sc, side)])
     inside = (px[:, 0] >= 0) & (px[:, 0] < MAP_W) & (px[:, 1] >= 0) & (px[:, 1] < h)
     flat = px[inside, 1] * MAP_W + px[inside, 0]
-    per_class = np.zeros((len(names), h * MAP_W), dtype=np.int32)
+    per_class = np.zeros((len(REGIONS), h * MAP_W), dtype=np.int32)
     np.add.at(per_class, (cls[inside], flat), 1)
     count = per_class.sum(axis=0)
-    palette = np.array([COLORS.get(n, OTHER) for n in names], dtype=np.float32)
+    palette = np.array([color for _, color in REGIONS], dtype=np.float32)
 
     # The reference's brightness: floor + gain x log-density, normalised to the
     # 99.5th percentile (the ascending neurons pinned at the neck cut would
@@ -122,14 +131,18 @@ def build():
     missing = [rid for rid in want if rid not in index]
     if missing:
         raise SystemExit(f"{len(missing)} circuit neurons have no position in the table: {missing[:5]}")
-    cpx = np.clip(px[[index[rid] for rid in want]], 0, [MAP_W - 1, h - 1])
+    rows = [index[rid] for rid in want]
+    cpx = np.clip(px[rows], 0, [MAP_W - 1, h - 1])
     img[cpx[:, 1], cpx[:, 0]] = img[cpx[:, 1], cpx[:, 0]] * 0.4 + np.array(MARKER) * 0.6
 
     img = img.astype(np.uint8)
     for text, x in (("L", 4), ("R", MAP_W - 13)):
         cv2.putText(img, text, (x, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (156, 147, 138), 1, cv2.LINE_AA)
 
-    np.savez_compressed(OUT_PATH, background=img, circuit_ids=want, circuit_px=cpx.astype(np.int16))
+    np.savez_compressed(OUT_PATH, background=img, circuit_ids=want, circuit_px=cpx.astype(np.int16),
+                        circuit_region=cls[rows].astype(np.int8),
+                        region_names=np.array([n for n, _ in REGIONS]),
+                        region_colors=np.array([c for _, c in REGIONS], dtype=np.uint8))
     print(f"{len(a)} neurons -> {MAP_W}x{h} px; {len(want)} circuit neurons placed")
     print(f"wrote {OUT_PATH} ({OUT_PATH.stat().st_size // 1024} KB)")
 
