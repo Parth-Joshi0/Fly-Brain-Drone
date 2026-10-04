@@ -1,48 +1,38 @@
 """
-Builds brain_atlas.npz - the picture of the whole fly brain that
+Builds brain_atlas.npz - the finished picture of the fly brain that
 brain_diagram.py lights up, made out of the real neurons rather than drawn.
 
-Same idea as the BrainViewHud in blendi-remade/fly-brain-minecraft
-(src/client/java/com/fruitfly/client/hud/BrainViewHud.java): every neuron's
-soma is projected onto a 2-D image, each pixel is coloured by the region most
-of its neurons belong to and brightened by log(how many there are), so the
-optic lobes, central brain and their outline appear on their own. Two
-projections are baked, stacked in the diagram:
+Same idea as the BrainViewHud in blendi-remade/fly-brain-minecraft: every
+neuron's soma is projected head-on (frontal view), each pixel is coloured by
+the region most of its somata belong to and brightened by log(how many there
+are), so the optic lobes and central brain appear on their own. The fly's
+LEFT is on the viewer's LEFT, like the rest of this project's left/right
+readouts.
 
-    frontal   looking at the head-on face of the brain (x across, y down)
-    dorsal    looking down from above, anterior at the top (x across, z down)
+Source: Schlegel et al. 2024's FlyWire annotation table, the same file
+StabilizerNeuron/build_dng02_circuit.py takes cell types from and caches under
+Data/. Coordinates are FlyWire voxels (4 x 4 x 40 nm); x grows toward the
+fly's right, y ventrally. Neurons without a reconstructed soma use pos_x/y,
+a point on the neuron itself.
 
-Both keep the fly's LEFT on the viewer's LEFT, like the rest of this project's
-left/right readouts (loom_left, DNp01_left, ...), rather than the mirror-image
-"facing the fly" convention - so a left-eye loom lights up the left of the
-screen in both views.
+Everything is baked here so the live diagram only has to copy one image and
+draw the spiking cells on top. Saved:
 
-Source: Schlegel et al. 2024's FlyWire annotation table
-(flyconnectome/flywire_annotations Supplemental_file1_neuron_annotations.tsv),
-the same file StabilizerNeuron/build_dng02_circuit.py takes cell types from and
-caches under Data/. Coordinates are FlyWire voxels (4 x 4 x 40 nm); measured
-from the table itself (ORNs enter at z ~800, Kenyon cell somata sit at z ~4800
-and low y), x grows toward the fly's right, y ventrally, z posteriorly.
-
-The background uses every annotated neuron (139k), not only the 106k of them
-whose root ids are in this repo's v630 completeness list - it is anatomy, and
-dropping a fifth of the cells would just thin the picture. The circuit neurons
-fly_brain_controller.py actually simulates (looming_circuit_neurons.json +
-StabilizerNeuron/dng02_circuit_neurons.json, 418 cells) are all present and
-get their own pixel coordinates, which is where their spikes are drawn. The
-few without a reconstructed soma fall back to the table's pos_x/y/z, a point
-on the neuron itself.
+    background    H x W x 3 BGR image, with the simulated cells marked in
+                  faint yellow and L / R labels
+    circuit_ids   root ids of the 418 cells fly_brain_controller.py simulates
+    circuit_px    their (x, y) pixel on the background
 
     python NeuralPathways/BrainView/build_brain_atlas.py
 
-Output is a few hundred KB and committed; re-run only to change MAP_W or the
-region grouping. Needs pandas (like the other build scripts), not brian2.
+Needs pandas (like the other build scripts), not brian2.
 """
 
 import json
 import sys
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pandas as pd
 
@@ -57,63 +47,25 @@ LOOMING_IDS_PATH = PATHWAYS / "looming_circuit_neurons.json"
 DNG02_IDS_PATH = PATHWAYS / "StabilizerNeuron" / "dng02_circuit_neurons.json"
 OUT_PATH = HERE / "brain_atlas.npz"
 
-# Display width of each map in pixels. The atlas is baked at exactly the size
-# brain_diagram.py draws it, so one soma lands on one screen pixel and nothing
-# is resampled.
-MAP_W = 440
-MARGIN = 6                 # px of empty border around the brain
-CLIP_PERCENTILE = 0.05     # ignore the outermost 0.05% of somata when fitting
-                           # the frame (a handful of mis-placed points would
-                           # otherwise shrink the whole brain)
-VOXEL_NM = np.array([4.0, 4.0, 40.0])
+MAP_W = 440                # px - drawn 1:1 by brain_diagram.py
+MARGIN = 6
+CLIP_PERCENTILE = 0.05     # ignore the outermost 0.05% of somata when framing
+VOXEL_NM = np.array([4.0, 4.0])
 
-# Region rows, in the order brain_diagram.py lists them. The reference HUD's
-# list adapted to FlyWire, which is brain-only: there is no nerve cord, so its
-# "nerve cord" row becomes "ascending" (cells whose somata are in the VNC but
-# whose axons reach the brain).
-REGION_NAMES = ("optic lobe L", "optic lobe R", "central brain", "descending",
-                "ascending", "motor", "sensory", "other")
-OPTIC_CLASSES = {"optic", "visual_projection", "visual_centrifugal"}
-CENTRAL_CLASSES = {"central", "endocrine"}
-
-
-def region_of(super_class, side):
-    """Region row for one neuron. Visual projection neurons (LC4, LPLC2, ...)
-    are counted with the optic lobe of their side - their somata sit there,
-    and it is what makes a one-sided loom readable straight off the bars."""
-    if super_class in OPTIC_CLASSES:
-        if side == "left":
-            return 0
-        if side == "right":
-            return 1
-        return 7
-    if super_class in CENTRAL_CLASSES:
-        return 2
-    if super_class == "descending":
-        return 3
-    if super_class == "ascending":
-        return 4
-    if super_class == "motor":
-        return 5
-    if super_class in ("sensory", "sensory_ascending"):
-        return 6
-    return 7
-
-
-def load_positions(path=ANNOTATIONS_CACHE):
-    if not path.exists():
-        load_annotations(path, ANNOTATIONS_URL)       # downloads + caches it
-    cols = ["root_id", "pos_x", "pos_y", "pos_z", "soma_x", "soma_y", "soma_z", "super_class", "side"]
-    a = pd.read_csv(path, sep="\t", usecols=cols, low_memory=False)
-    soma = a[["soma_x", "soma_y", "soma_z"]].to_numpy(dtype=float)
-    pos = a[["pos_x", "pos_y", "pos_z"]].to_numpy(dtype=float)
-    has_soma = ~np.isnan(soma).any(axis=1)
-    xyz = np.where(has_soma[:, None], soma, pos) * VOXEL_NM / 1000.0      # -> um
-    ok = ~np.isnan(xyz).any(axis=1)
-    region = np.array([region_of(sc, sd) for sc, sd in zip(a["super_class"].fillna(""), a["side"].fillna(""))],
-                      dtype=np.int8)
-    return (a["root_id"].to_numpy(dtype=np.int64)[ok], xyz[ok], region[ok], has_soma[ok],
-            a["side"].fillna("").to_numpy()[ok])
+# FlyWire super_class -> BGR colour (fly-brain-minecraft's region palette).
+# Visual projection neurons such as LC4/LPLC2 sit in the optic lobe, so they
+# take its colour.
+OPTIC = (176, 184, 63)
+COLORS = {
+    "optic": OPTIC, "visual_projection": OPTIC, "visual_centrifugal": OPTIC,
+    "central": (230, 176, 157), "endocrine": (230, 176, 157),
+    "descending": (255, 155, 91),
+    "ascending": (106, 154, 200),
+    "motor": (64, 160, 255),
+    "sensory": (110, 214, 85), "sensory_ascending": (110, 214, 85),
+}
+OTHER = (138, 138, 138)
+MARKER = (102, 224, 255)   # faint yellow where the simulated cells sit
 
 
 def circuit_ids():
@@ -127,62 +79,58 @@ def circuit_ids():
 
 
 def build():
-    ids, xyz, region, has_soma, side = load_positions()
-    print(f"{len(ids)} neurons with a position ({has_soma.sum()} somata, rest pos_*)")
+    if not ANNOTATIONS_CACHE.exists():
+        load_annotations(ANNOTATIONS_CACHE, ANNOTATIONS_URL)       # downloads + caches it
+    a = pd.read_csv(ANNOTATIONS_CACHE, sep="\t", low_memory=False,
+                    usecols=["root_id", "pos_x", "pos_y", "soma_x", "soma_y", "super_class", "side"])
+    xy = a[["soma_x", "soma_y"]].to_numpy(float)
+    xy = np.where(np.isnan(xy), a[["pos_x", "pos_y"]].to_numpy(float), xy) * VOXEL_NM / 1000.0   # um
+    ok = ~np.isnan(xy).any(axis=1)
+    a, xy = a[ok], xy[ok]
 
-    # Fly's left on the viewer's left. Measured, not assumed.
-    left_x = xyz[side == "left", 0].mean()
-    right_x = xyz[side == "right", 0].mean()
-    x_sign = 1.0 if left_x < right_x else -1.0
-    u = x_sign * xyz[:, 0]
+    # Fly's left on the viewer's left - measured, not assumed.
+    if xy[(a["side"] == "left").to_numpy(), 0].mean() > xy[(a["side"] == "right").to_numpy(), 0].mean():
+        xy[:, 0] = -xy[:, 0]
+    lo = np.percentile(xy, CLIP_PERCENTILE, axis=0)
+    hi = np.percentile(xy, 100 - CLIP_PERCENTILE, axis=0)
+    scale = (hi[0] - lo[0]) / (MAP_W - 2 * MARGIN)            # um per px
+    h = int(round((hi[1] - lo[1]) / scale)) + 2 * MARGIN
+    px = np.round((xy - lo) / scale).astype(int) + MARGIN
 
-    lo = np.percentile(xyz, CLIP_PERCENTILE, axis=0)
-    hi = np.percentile(xyz, 100 - CLIP_PERCENTILE, axis=0)
-    u_lo, u_hi = sorted((x_sign * lo[0], x_sign * hi[0]))
-    um_per_px = (u_hi - u_lo) / (MAP_W - 2 * MARGIN)
+    # Per pixel: how many somata, and the colour most of them have.
+    names = list(COLORS) + ["other"]
+    cls = a["super_class"].map({n: i for i, n in enumerate(names)}).fillna(len(names) - 1).to_numpy(int)
+    inside = (px[:, 0] >= 0) & (px[:, 0] < MAP_W) & (px[:, 1] >= 0) & (px[:, 1] < h)
+    flat = px[inside, 1] * MAP_W + px[inside, 0]
+    per_class = np.zeros((len(names), h * MAP_W), dtype=np.int32)
+    np.add.at(per_class, (cls[inside], flat), 1)
+    count = per_class.sum(axis=0)
+    palette = np.array([COLORS.get(n, OTHER) for n in names], dtype=np.float32)
 
-    # (name, vertical coordinate). y grows ventrally and z posteriorly, so
-    # plain increasing v puts dorsal / anterior at the top of the image.
-    views = (("frontal", 1), ("dorsal", 2))
-    out = {
-        "region_names": np.array(REGION_NAMES),
-        "views": np.array([v for v, _ in views]),
-        "um_per_px": np.float32(um_per_px),
-    }
+    # The reference's brightness: floor + gain x log-density, normalised to the
+    # 99.5th percentile (the ascending neurons pinned at the neck cut would
+    # otherwise set the scale for everything else).
+    lit = count > 0
+    ref = max(2.0, float(np.percentile(count[lit], 99.5)))
+    bright = 0.24 + 0.56 * np.clip(np.log1p(count) / np.log1p(ref), 0.0, 1.0)
+    img = np.zeros((h * MAP_W, 3), dtype=np.float32)
+    img[lit] = palette[per_class[:, lit].argmax(axis=0)] * bright[lit, None]
+    img = img.reshape(h, MAP_W, 3)
 
     want = circuit_ids()
-    index = {rid: i for i, rid in enumerate(ids)}
+    index = {rid: i for i, rid in enumerate(a["root_id"].to_numpy(np.int64))}
     missing = [rid for rid in want if rid not in index]
     if missing:
         raise SystemExit(f"{len(missing)} circuit neurons have no position in the table: {missing[:5]}")
-    rows = np.array([index[rid] for rid in want])
-    out["circuit_ids"] = want
-    out["circuit_region"] = region[rows]
-    out["circuit_has_soma"] = has_soma[rows]
+    cpx = np.clip(px[[index[rid] for rid in want]], 0, [MAP_W - 1, h - 1])
+    img[cpx[:, 1], cpx[:, 0]] = img[cpx[:, 1], cpx[:, 0]] * 0.4 + np.array(MARKER) * 0.6
 
-    for name, axis in views:
-        v = xyz[:, axis]
-        h = int(round((hi[axis] - lo[axis]) / um_per_px)) + 2 * MARGIN
-        px = np.round((u - u_lo) / um_per_px).astype(int) + MARGIN
-        py = np.round((v - lo[axis]) / um_per_px).astype(int) + MARGIN
-        # Outliers past the clipped frame are left out of the background
-        # (clamping them stacks them into a line along the edge)...
-        inside = (px >= 0) & (px < MAP_W) & (py >= 0) & (py < h)
-        flat = py[inside] * MAP_W + px[inside]
-        count = np.bincount(flat, minlength=h * MAP_W)
-        per_region = np.zeros((len(REGION_NAMES), h * MAP_W), dtype=np.int32)
-        np.add.at(per_region, (region[inside], flat), 1)
-        # ...but a circuit neuron always gets a pixel, its spikes have to land somewhere.
-        px, py = np.clip(px, 0, MAP_W - 1), np.clip(py, 0, h - 1)
-        dominant = np.where(count > 0, per_region.argmax(axis=0), -1)
-        out[f"count_{name}"] = count.reshape(h, MAP_W).astype(np.uint16)
-        out[f"region_{name}"] = dominant.reshape(h, MAP_W).astype(np.int8)
-        out[f"circuit_px_{name}"] = np.stack([px[rows], py[rows]], axis=1).astype(np.int16)
-        print(f"  {name}: {MAP_W}x{h} px, {int((count > 0).sum())} lit pixels, max {count.max()} somata/pixel")
+    img = img.astype(np.uint8)
+    for text, x in (("L", 4), ("R", MAP_W - 13)):
+        cv2.putText(img, text, (x, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (156, 147, 138), 1, cv2.LINE_AA)
 
-    np.savez_compressed(OUT_PATH, **out)
-    print(f"{len(want)} circuit neurons placed ({int(has_soma[rows].sum())} at their soma, "
-          f"{int((~has_soma[rows]).sum())} at pos_*), {um_per_px:.2f} um/px")
+    np.savez_compressed(OUT_PATH, background=img, circuit_ids=want, circuit_px=cpx.astype(np.int16))
+    print(f"{len(a)} neurons -> {MAP_W}x{h} px; {len(want)} circuit neurons placed")
     print(f"wrote {OUT_PATH} ({OUT_PATH.stat().st_size // 1024} KB)")
 
 
