@@ -35,16 +35,22 @@ Without scared=True or stabilize=True it's just the eating behaviour
 rest: camera, safety, screen, keys, flight log.
 """
 
+import threading
+import time
+
 from BananaModel.liveDetect import Detection
 from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour, RCCommand, clamp
 
 
-# With the fly brain running, the banana AI (~40-50 ms) only runs on
-# every Nth picture, so the looming detector + fly brain get more
-# pictures per second - at ~11/s a fast hand jumps too far between
-# pictures to be noticed (quick swipes caught: 0/4 -> 4/4). The banana
-# barely moves between pictures, so its last position is reused.
-BANANA_EVERY_N_SCARED = 3
+# The banana AI runs on its own thread (_BananaWorker), so the camera +
+# fly brain loop never waits for it: the fly brain needs ~15+ pictures/s
+# to catch a hand (quick swipes caught: 0/4 at ~11/s, 4/4 at ~16/s), and
+# the sharp-eyes zoomed look takes ~0.4 s per picture - run inline, it
+# dropped the loop to ~2 pictures/s (dry run 10-04 15:30). Meanwhile the
+# latest banana result is reused; it barely moves between pictures.
+
+# Results older than this are dropped rather than steered by
+MAX_DETECTION_AGE = 0.8
 
 # Zoomed-in look: as well as the whole picture, check 4 overlapping
 # pieces this big (fraction of width/height), each shown to the banana
@@ -100,11 +106,112 @@ def detect_zoomed(detector, frame_bgr):
     return kept
 
 
-class ScaredEatingBrain:
+class _BananaWorker:
+    """Runs the banana AI on a background thread, one picture at a time:
+    hand it the newest picture whenever it's free, read back the latest
+    result whenever you like."""
 
-    def __init__(self, detector, tello=None, frame_read=None, scared=False, stabilize=False):
+    def __init__(self, detector, sharp_detector):
 
         self.detector = detector
+
+        self.sharp_detector = sharp_detector
+
+        self._lock = threading.Lock()
+
+        self._wake = threading.Event()
+
+        self._job = None
+
+        self._busy = False
+
+        self._stopping = False
+
+        # Latest result: detections, a counter that goes up with each new
+        # result, and when it finished
+        self.result = []
+
+        self.result_id = 0
+
+        self.result_time = 0.0
+
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+        self._thread.start()
+
+
+    def submit(self, frame_bgr, sharp):
+        """Start on this picture if free (returns False if still busy)."""
+
+        with self._lock:
+
+            if self._busy:
+                return False
+
+            self._busy = True
+
+            self._job = (frame_bgr, sharp)
+
+        self._wake.set()
+
+        return True
+
+
+    def _run(self):
+
+        while True:
+
+            self._wake.wait()
+
+            self._wake.clear()
+
+            if self._stopping:
+                return
+
+            frame_bgr, sharp = self._job
+
+            try:
+
+                if sharp:
+                    found = detect_zoomed(self.sharp_detector, frame_bgr)
+                else:
+                    found = self.detector.detect(frame_bgr)
+
+            except Exception as err:
+
+                print("Banana AI error:", err)
+
+                found = []
+
+            with self._lock:
+
+                self.result = found
+
+                self.result_id += 1
+
+                self.result_time = time.time()
+
+                self._busy = False
+
+
+    def close(self):
+
+        self._stopping = True
+
+        self._wake.set()
+
+
+class ScaredEatingBrain:
+
+    def __init__(self, detector, tello=None, frame_read=None, scared=False,
+                 stabilize=False, sharp_detector=None):
+
+        self.detector = detector
+
+        # Slower, more accurate banana AI for the zoomed-in look while
+        # holding still (tello_camera.py passes YOLOv8 small); falls back
+        # to the normal one
+        self.sharp_detector = sharp_detector or detector
 
         self.behaviour = FoodOrbitBehaviour()
 
@@ -121,11 +228,11 @@ class ScaredEatingBrain:
 
             self.fear = FearBrain(tello, frame_read, stabilize=stabilize)
 
-        self.banana_every = BANANA_EVERY_N_SCARED if self.fear is not None else 1
+        self.banana = _BananaWorker(self.detector, self.sharp_detector)
 
-        self.picture_count = 0
+        self._seen_result_id = 0
 
-        # Latest banana detections (may be 1-2 pictures old)
+        # Latest banana detections (may be a few pictures old)
         self.detections = []
 
 
@@ -138,11 +245,13 @@ class ScaredEatingBrain:
             self.fear.start()
 
 
-    def step(self, frame_bgr, yaw_deg=None):
+    def step(self, frame_bgr, yaw_deg=None, flying=True):
         """
         One camera picture (BGR, not drawn on yet) in, one rc command out
         (food_orbit.RCCommand: lr, fb, ud, yaw). yaw_deg: the drone's
-        compass heading, if known - counts the scan's turns.
+        compass heading, if known - counts the scan's turns. flying:
+        False in a dry run, so the fly brain knows the drone isn't
+        actually doing the moves it's asked to (and doesn't ignore waves).
         """
 
         # Looming first, on the clean picture - boxes drawn on it would
@@ -153,21 +262,29 @@ class ScaredEatingBrain:
             self.behaviour.scare()
 
 
-        if self.behaviour.wants_zoom:
+        # Banana AI on its own thread: give it this picture if it's free
+        # (a copy - tello_camera.py draws on the frame afterwards). Holding
+        # still to look for it -> the slow, careful sharp-eyes look.
+        self.banana.submit(frame_bgr.copy(), sharp=self.behaviour.wants_zoom)
 
-            # Holding still to look for it: take the slow, careful look
-            self.detections = detect_zoomed(self.detector, frame_bgr)
+        fresh = self.banana.result_id != self._seen_result_id
 
-        elif self.picture_count % self.banana_every == 0:
+        self._seen_result_id = self.banana.result_id
 
-            self.detections = self.detector.detect(frame_bgr)
-
-        self.picture_count += 1
+        if time.time() - self.banana.result_time <= MAX_DETECTION_AGE:
+            self.detections = self.banana.result
+        else:
+            self.detections = []
 
 
         h, w = frame_bgr.shape[:2]
 
-        cmd = self.behaviour.update(self.detections, w, h, yaw_deg)
+        # Lets the behaviour tell when the coast is clear to come back
+        # (nothing looming) - see food_orbit.py's COME BACK FAST
+        if self.fear is not None:
+            self.behaviour.escape_level = self.fear.escape_level
+
+        cmd = self.behaviour.update(self.detections, w, h, yaw_deg, fresh=fresh)
 
         intended_yaw = cmd.yaw
 
@@ -189,12 +306,21 @@ class ScaredEatingBrain:
         # what DNg02 must not fight.
         if self.fear is not None:
 
-            self.fear.record_command(cmd.lr, cmd.fb, cmd.ud, cmd.yaw, intended_yaw=intended_yaw)
+            if flying:
+
+                self.fear.record_command(cmd.lr, cmd.fb, cmd.ud, cmd.yaw, intended_yaw=intended_yaw)
+
+            else:
+
+                # Dry run: nothing actually moves
+                self.fear.record_command(0, 0, 0, 0, intended_yaw=0)
 
         return cmd
 
 
     def close(self):
+
+        self.banana.close()
 
         if self.fear is not None:
 

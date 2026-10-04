@@ -199,7 +199,7 @@ class FearBrain:
 
         # ms spent in the brain subprocess for the latest picture -
         # measured, because the loop-rate tuning (MAX_BRAIN_STEPS,
-        # BANANA_EVERY_N_SCARED) was done on one particular laptop
+        # the banana AI's background thread in ScaredEating/) was done on one particular laptop
         self.brain_ms = 0.0
 
 
