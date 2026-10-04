@@ -34,6 +34,8 @@ for k, name in enumerate(names):
 
 t0 = time.time()
 c = fbc.FlyBrainController()
+dn_local = {name: n_in + k for k, name in enumerate(names)}
+spiked_mismatches = 0   # step()'s "spiked" list (BrainView's map) vs its own spike_counts
 print(f"\nnetwork build: {time.time() - t0:.1f}s")
 print(f"\n{STEPS} steps ({STEPS * 20}ms) of sustained looming per row:")
 for label, left, right in [("none", 0, 0), ("both 0.1", .1, .1), ("both 0.25", .25, .25),
@@ -48,6 +50,8 @@ for label, left, right in [("none", 0, 0), ("both 0.1", .1, .1), ("both 0.25", .
         r = c.step(left, right)
         for k, v in r["spike_counts"].items():
             totals[k] += v
+        per_cell = np.bincount(np.asarray(r["spiked"], dtype=int), minlength=circuit["n_total"])
+        spiked_mismatches += sum(int(per_cell[dn_local[k]] != v) for k, v in r["spike_counts"].items())
         peak_escape = max(peak_escape, r["escape"])
         yaws.append(r["yaw"])
     ms_per_step = (time.time() - t) / STEPS * 1000
@@ -55,3 +59,7 @@ for label, left, right in [("none", 0, 0), ("both 0.1", .1, .1), ("both 0.25", .
     print(f"  {label:10s} spikes={dict(totals)}\n"
           f"             peak_escape={peak_escape:.2f} ESCAPE={escaped} "
           f"mean_yaw={np.mean(yaws):+.2f} forward={r['forward']:.2f} ({ms_per_step:.1f}ms/step)")
+
+verdict = "yes" if spiked_mismatches == 0 else f"NO ({spiked_mismatches} mismatches)"
+print(f"\n'spiked' agrees with spike_counts for the 6 DNs on every step: {verdict}")
+sys.exit(1 if spiked_mismatches else 0)

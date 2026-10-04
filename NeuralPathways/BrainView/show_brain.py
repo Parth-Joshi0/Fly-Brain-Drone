@@ -59,7 +59,7 @@ def main():
     )
     parser.add_argument("--fps", type=float, default=DEFAULT_MAX_FPS,
                         help=f"max diagram redraws per second (default {DEFAULT_MAX_FPS:g} - every "
-                             "other 30Hz decision cycle; 30 draws every cycle but costs ~6 ms each, "
+                             "other 30Hz decision cycle; 30 draws every cycle but costs ~8 ms each, "
                              "which the real drone's 33 ms budget may not have spare)")
     parser.add_argument("script", help="path to the script to run, e.g. main.py")
     parser.add_argument("script_args", nargs=argparse.REMAINDER)

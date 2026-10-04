@@ -133,7 +133,8 @@ main-loop-facing adapter) needs to know about:
 
     step(loom_left, loom_right, drive_common, drive_left, drive_right)
         -> {"yaw": float, "forward": float, "escape": float,
-            "spike_counts": {...}, "dng02": {...}}
+            "spike_counts": {...}, "dng02": {...},
+            "spiked": [int, ...]}
 
     loom_left / loom_right: 0..1, how strongly something is looming in the
     left/right visual field over the upcoming control tick (0 = nothing,
@@ -348,6 +349,7 @@ def _load_circuit(with_dng02=False):
         "dng02_at": n_in + len(outputs),
         "drive_at": n_in + len(outputs) + len(dng02),
         "n_total": len(all_neurons),
+        "root_ids": root_ids,
         "root_to_local": root_to_local,
     }
 
@@ -370,6 +372,7 @@ class FlyBrainController:
         self.step_dt = step_dt
         self.with_dng02 = with_dng02
         circuit = _load_circuit(with_dng02)
+        self.root_ids = circuit["root_ids"]   # local index -> FlyWire root id
         self._outputs = circuit["outputs"]
         self._dng02 = circuit["dng02"]
         self._drivers = circuit["drivers"]
@@ -553,6 +556,13 @@ class FlyBrainController:
             "yaw": float(yaw), "forward": float(forward), "escape": float(escape),
             "spike_counts": spike_counts,
             "dng02": self._read_dng02(delta),
+            # Every spike in the whole network in this window, as local
+            # neuron indices (the ready handshake's neuron_ids maps them to
+            # root ids), one entry per spike - a cell that fired twice is
+            # listed twice. For BrainView's whole-brain map, so the LC4/LPLC2
+            # and drive-pool points it lights are recorded spikes too, not
+            # just the DNs.
+            "spiked": np.repeat(np.flatnonzero(delta), delta[delta > 0]).tolist(),
         }
 
     def _read_dng02(self, delta):
@@ -647,6 +657,9 @@ def _serve_stdio():
         # re-deriving the sort from the JSON.
         "dng02_labels": [n["label"] for n in controller._dng02],
         "dng02_sides": [n["side"] for n in controller._dng02],
+        # FlyWire root id of every neuron in local index order - what step()'s
+        # "spiked" indices refer to.
+        "neuron_ids": controller.root_ids,
     }), flush=True)
     for line in sys.stdin:
         line = line.strip()
