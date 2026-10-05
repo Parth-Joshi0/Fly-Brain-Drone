@@ -1,8 +1,8 @@
 # Banana Detection Model
 
 Finds bananas in a camera frame and classifies how ripe each one is.
-Used by the drone (`Drone/tello_camera.py`) to find food for the
-fly-inspired "hover → eat" behaviour in `NeuralPathways/FoodNeuron/food_orbit.py`.
+Used by the drone (`Drone/fly_tello.py`) to find food for the
+fly-inspired "hover → eat" behaviour in `NeuralPathways/FoodNeuron/feeding_behaviour.py`.
 
 ## How it works
 
@@ -126,7 +126,7 @@ second on the live Tello feed.
 ## Using it in code
 
 ```python
-from BananaModel.liveDetect import BananaDetector
+from BananaModel.banana_detector import BananaDetector
 
 detector = BananaDetector()
 
@@ -154,31 +154,17 @@ Each `Detection` has:
 
 | File | What it does |
 |---|---|
-| `liveDetect.py` | `BananaDetector`: the full two-stage pipeline used by the drone |
+| `banana_detector.py` | `BananaDetector`: the full two-stage pipeline used by the drone |
 | `model.py` | Builds the MobileNetV2 classifier |
 | `dataset.py` | Loads images and applies augmentation |
 | `train.py` | Training loop with early stopping |
 | `config.py` | Training settings and paths |
-| `test.py` | Classify a single image |
-| `interface.py` | Live webcam demo of the classifier |
 | `checkpoints/best_banana_model.pth` | Trained classifier weights |
 | `yolov8n.pt` | YOLOv8 nano weights (COCO) |
 
 ## Tests
 
-No automated test suite yet (no `Tests/` folder here) — what exists today is a manual single-image check:
-
-### `test.py`: classify one image by hand
-
-Loads the trained checkpoint, runs it on a single image, and prints the predicted ripeness class plus the full probability breakdown across all 6 classes. Useful for spot-checking the classifier against a specific photo without going through the live detector.
-
-```bash
-python test.py path/to/image.jpg
-```
-
-Falls back to the hardcoded `DEFAULT_CLASS_NAMES` order if `checkpoints/class_names.json` is missing (see Known limitations below) — matches the training order, but is worth fixing properly by saving that file from `train.py`.
-
-The held-out **test** set accuracy numbers in the Results section above (93.6% overall, 562 images) come from evaluating the full test split, not from this script — this script is for eyeballing one image at a time.
+No automated test suite yet. To spot-check the classifier on one photo, run `BananaDetector().detect(cv2.imread(path))` from the repo root.
 
 ## Known limitations
 
@@ -188,7 +174,7 @@ The held-out **test** set accuracy numbers in the Results section above (93.6% o
   photos, unlike the drone's view (farther away, moving, compressed
   video). Because of this, the drone behaviour now treats **any**
   banana as food instead of relying on the ripeness label.
-- **`checkpoints/class_names.json` is missing.** `liveDetect.py` falls
+- **`checkpoints/class_names.json` is missing.** `banana_detector.py` falls
   back to the built-in class list, which does match the training order
   above. Saving `class_names.json` from `train.py` would make this
   explicit.

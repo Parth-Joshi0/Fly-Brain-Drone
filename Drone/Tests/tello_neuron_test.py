@@ -90,7 +90,7 @@ DEFAULT_VERTICAL_FOV = 55.6
 # (same 4:3), so downscale rather than re-tune the cell/margin geometry.
 PROC_WIDTH, PROC_HEIGHT = 320, 240
 
-STREAM_SETTLE_SECONDS = 3.0   # tello_camera.py uses the same wait - the
+STREAM_SETTLE_SECONDS = 3.0   # fly_tello.py uses the same wait - the
                                # first frames are pre-keyframe garbage
 WARMUP_FRAMES = 15             # discarded after that, then the detector is
                                # reset so its EMA/median start clean
@@ -245,7 +245,7 @@ def open_tello(log):
         raise SystemExit(1)
 
     tello = Tello()
-    # wait_for_state=False matches the existing tello_test.py/tello_camera.py -
+    # wait_for_state=False matches the existing tello_test.py/fly_tello.py -
     # the state socket sometimes never reports on a fresh connect and the
     # default would block forever.
     tello.connect(wait_for_state=False)
@@ -344,7 +344,7 @@ def read_attitude(tello):
 
 def wait_for_state(tello, log, timeout=10.0):
     """Polls for the first state packet. connect(wait_for_state=False) - what
-    tello_test.py/tello_camera.py use, and what this script inherited -
+    tello_test.py/fly_tello.py use, and what this script inherited -
     returns as soon as the 'command' handshake is acknowledged, so the state
     dict can still be empty afterwards and any get_*() reading it raises
     TelloException. Not fatal here: a stationary level drone does not need
@@ -449,7 +449,7 @@ def main():
             if frame_not_ready(frame):
                 time.sleep(0.005)
                 continue
-            # Tello frames arrive as RGB (same conversion tello_camera.py does)
+            # Tello frames arrive as RGB (same conversion fly_tello.py does)
             frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             small = cv2.resize(frame_bgr, (PROC_WIDTH, PROC_HEIGHT), interpolation=cv2.INTER_AREA)
             gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)

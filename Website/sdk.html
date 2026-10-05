@@ -25,7 +25,7 @@
     <p class="lede">The brain only outputs abstract intentions: escape, yaw, forward. This page covers how those become four integers sent over Wi-Fi to a real DJI Tello, and everything we built so that doing so is safe.</p>
     <div class="byline">
       <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
-      <span class="meta">interfaces/tello_drone.py · tello_camera.py</span>
+      <span class="meta">interfaces/tello_drone.py · fly_tello.py</span>
     </div>
   </header>
 
@@ -152,7 +152,7 @@ print("Landed!")</code></pre>
       <table>
         <thead><tr><th>Layer</th><th>Behaviour</th></tr></thead>
         <tbody>
-          <tr><td>Dry run by default</td><td><code>tello_camera.py</code> streams and runs perception but never takes off unless given <code>--fly</code>.</td></tr>
+          <tr><td>Dry run by default</td><td><code>fly_tello.py</code> streams and runs perception but never takes off unless given <code>--fly</code>.</td></tr>
           <tr><td>Battery gate</td><td>Refuses to take off below 30%. <code>battery.py</code> reports "OK to fly" and has a <code>--watch</code> mode.</td></tr>
           <tr><td>Hard timeout</td><td>The escape flight test auto-lands 60 s after takeoff (<code>--seconds</code>).</td></tr>
           <tr><td>Operator keys</td><td><code>q</code> land · <code>e</code> gentle stop-and-land · <code>x</code> emergency motor stop (banana flight). <code>l</code> land · <code>q</code>/<code>space</code> hover then land (escape test).</td></tr>
@@ -165,7 +165,7 @@ print("Landed!")</code></pre>
 
   <section id="feeding">
     <h2><span class="sec">3.8</span>Feeding behaviour on the Tello</h2>
-    <p>The banana "hunger" behaviour (<code>controllers/food_orbit.py</code>) runs the <a href="banana.html">banana network</a> on every frame and drives a small state machine:</p>
+    <p>The banana "hunger" behaviour (<code>NeuralPathways/FoodNeuron/feeding_behaviour.py</code>) runs the <a href="banana.html">banana network</a> on every frame and drives a small state machine:</p>
     <figure>
       <div class="fig-body">
         <svg class="dg" viewBox="0 0 700 150" role="img" aria-label="State machine: SEARCH to FEED to DONE to LAND">

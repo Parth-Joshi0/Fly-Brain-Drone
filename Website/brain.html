@@ -25,7 +25,7 @@
     <p class="lede">We cut a 274-neuron looming-escape circuit out of the FlyWire connectome, simulated it as spiking neurons in real time, and read its descending neurons out as flight commands.</p>
     <div class="byline">
       <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
-      <span class="meta">fly_brain_controller.py · controllers/flybrain_controller.py</span>
+      <span class="meta">connectome_worker.py · NeuralPathways/flybrain_controller.py</span>
     </div>
   </header>
 
@@ -182,7 +182,7 @@
     <div class="eq">$$\text{forward} = \max\!\left(0,\ 1 - \frac{r_{03}^{L} + r_{03}^{R} + r_{06}^{L} + r_{06}^{R}}{2\cdot 30}\right)$$<span class="eq-num">(6)</span></div>
     <p>Positive yaw means turn left, following the project's convention. The code is a direct transcription:</p>
     <div class="code">
-      <div class="code-head">fly_brain_controller.py · step()</div>
+      <div class="code-head">connectome_worker.py · step()</div>
 <pre><code>escape_rate = rate_of("DNp01", "left") + rate_of("DNp01", "right")
 escape = min(1.0, escape_rate / (2 * ESCAPE_SAT_HZ))
 

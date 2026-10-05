@@ -1,6 +1,6 @@
 # BrainView
 
-A live window ("Fly Brain Activity") showing the fly brain while the drone flies. The brain is drawn head-on as a cloud of its real neurons: every FlyWire soma (139k), coloured by region (teal optic lobes, blue-grey central brain, green sensory). Each time one of the 418 cells `fly_brain_controller.py` simulates spikes, it glows at its real position and fades over about 0.3 s. These cells are LC4/LPLC2, DNp01/03/06, DNg02 and its drive pool, and faint yellow dots mark where they sit. One header line shows the controller state and the spikes in the last brain step. Below the map, **NEURONS FIRING THIS TICK** lists each simulated cell type (LC4, LPLC2, DNp01, DNp03, DNp06, DNg02, drive pool) in a left column and a right column. Each entry shows how many of its cells spiked out of how many are simulated (for example `12/47`), with a bar for that fraction and a peak-hold tick. A **KEY** says what each type does and what the colours mean.
+A live window ("Fly Brain Activity") showing the fly brain while the drone flies. The brain is drawn head-on as a cloud of its real neurons: every FlyWire soma (139k), coloured by region (teal optic lobes, blue-grey central brain, green sensory). Each time one of the 418 cells `connectome_worker.py` simulates spikes, it glows at its real position and fades over about 0.3 s. These cells are LC4/LPLC2, DNp01/03/06, DNg02 and its drive pool, and faint yellow dots mark where they sit. One header line shows the controller state and the spikes in the last brain step. Below the map, **NEURONS FIRING THIS TICK** lists each simulated cell type (LC4, LPLC2, DNp01, DNp03, DNp06, DNg02, drive pool) in a left column and a right column. Each entry shows how many of its cells spiked out of how many are simulated (for example `12/47`), with a bar for that fraction and a peak-hold tick. A **KEY** says what each type does and what the colours mean.
 
 The layout follows the brain view HUD in [blendi-remade/fly-brain-minecraft](https://github.com/blendi-remade/fly-brain-minecraft), cut down to stay cheap next to the simulator (about 1-3 ms per repaint; the static text is drawn once at startup).
 
@@ -8,7 +8,7 @@ The layout follows the brain view HUD in [blendi-remade/fly-brain-minecraft](htt
 
 ```bash
 python NeuralPathways/BrainView/show_brain.py main.py                 # PyBullet sim
-python NeuralPathways/BrainView/show_brain.py Drone/tello_camera.py   # any other script works the same way
+python NeuralPathways/BrainView/show_brain.py Drone/fly_tello.py   # any other script works the same way
 ```
 
 Everything after the script path goes to that script untouched. `--fps N` (before the script path) caps repaints; the default is 10. Spikes are recorded every brain step regardless.
@@ -29,7 +29,7 @@ attach(controller)          # controller = FlyBrainController(...)
 | `build_brain_atlas.py` | Offline: bakes the brain image from Schlegel et al. 2024's FlyWire annotation table (downloaded once to `../Data/`, 31 MB) and records each simulated cell's pixel, region and cell type. |
 | `brain_atlas.npz` | Its output (45 KB, committed). Rebuild with `python NeuralPathways/BrainView/build_brain_atlas.py`. |
 
-The spikes are real. `fly_brain_controller.py`'s `step()` returns `spiked`, every spike in the network that step as local indices. Its ready handshake sends `neuron_ids`, which maps those indices to root ids.
+The spikes are real. `connectome_worker.py`'s `step()` returns `spiked`, every spike in the network that step as local indices. Its ready handshake sends `neuron_ids`, which maps those indices to root ids.
 
 ## Test
 

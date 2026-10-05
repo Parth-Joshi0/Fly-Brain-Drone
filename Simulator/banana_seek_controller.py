@@ -1,7 +1,7 @@
 """
-The real Tello's banana-seek flight (Drone/tello_camera.py) as a simulator
+The real Tello's banana-seek flight (Drone/fly_tello.py) as a simulator
 controller: BananaModel's detector finds the banana, NeuralPathways/
-FoodNeuron/food_orbit.py's FoodOrbitBehaviour decides what to do about it,
+FoodNeuron/feeding_behaviour.py's FeedingBehaviour decides what to do about it,
 and the fly brain (NeuralPathways/flybrain_controller.py) runs alongside as a
 background fear reflex - same three pieces, same wiring as on the drone.
 
@@ -14,17 +14,17 @@ optic flow.
 Two things differ from the Tello, on purpose:
 
   * The dodge itself. On the Tello the brain only decides WHEN to be scared
-    and food_orbit's slow back-off (0.67 m/s for 1 s) is the whole reaction,
+    and feeding_behaviour's slow back-off (0.67 m/s for 1 s) is the whole reaction,
     because the brain's own dodge command only pushed for ~0.17 s there (see
     NeuralPathways/EscapeNeuron/fear_brain.py). In the sim the brain's dodge
     is the tuned, tested one (Simulator/Tests/test_escape_sim.py), and the
-    click-to-spawn test obstacle closes at 1.5 m/s - food_orbit's back-off
+    click-to-spawn test obstacle closes at 1.5 m/s - feeding_behaviour's back-off
     alone gets hit. So while the brain is in ESCAPE its dodge flies the
-    drone; food_orbit is still told it was scared and still runs, so it
+    drone; feeding_behaviour is still told it was scared and still runs, so it
     comes out of the dodge in WAIT and does the "is it safe? come back and
     finish eating" part exactly as on the drone.
 
-    Only when food_orbit takes the scare, though - it turns one down while
+    Only when feeding_behaviour takes the scare, though - it turns one down while
     already backed off (SCARED/WAIT) or done eating (DONE/LAND), and then the
     drone doesn't react at all, as on the Tello. That matters: DONE's slide
     to the right fired the Giant Fiber 1.5 s in on 4 of 4 runs (sideways
@@ -32,13 +32,13 @@ Two things differ from the Tello, on purpose:
     only discounts forward speed), and flying that dodge threw the drone
     2 m/s backwards right after it had finished eating.
 
-  * Picture size. food_orbit's pixel deadzones were tuned on the Tello's
+  * Picture size. feeding_behaviour's pixel deadzones were tuned on the Tello's
     960x720 frame; the sim camera is 320x240. Detections are scaled up to
-    TELLO_FRAME before food_orbit sees them rather than retuning it -
+    TELLO_FRAME before feeding_behaviour sees them rather than retuning it -
     box-size ratios don't change, and the deadzones stay the same fraction
     of the picture.
 
-FoodOrbitBehaviour speaks Tello RC percentages. They're converted to this
+FeedingBehaviour speaks Tello RC percentages. They're converted to this
 project's m/s / rad/s command dict with the same assumed scales
 Drone/tello_drone.py uses in the other direction.
 """
@@ -46,24 +46,24 @@ Drone/tello_drone.py uses in the other direction.
 import time
 
 from Drone.tello_drone import RC_SPEED_SCALE
-from NeuralPathways.FoodNeuron.food_orbit import EAT_SIZE_RATIO, FoodOrbitBehaviour
+from NeuralPathways.FoodNeuron.feeding_behaviour import EAT_SIZE_RATIO, FeedingBehaviour
 
 TELLO_FRAME = (960, 720)
 YAW_RATE_AT_100_RC = 1.5    # rad/s - Drone/tello_drone._rate_to_rc's assumption
 
-# Run the detector (~30-50 ms) every Nth decision cycle, as tello_camera.py
+# Run the detector (~30-50 ms) every Nth decision cycle, as fly_tello.py
 # does with the brain running (BANANA_EVERY_N_SCARED) - the banana barely
 # moves between frames, and the looming detector needs the frame rate more.
 DETECT_EVERY_N = 3
 
-# food_orbit's forward/back speeds are the Tello's (approach tops out at
+# feeding_behaviour's forward/back speeds are the Tello's (approach tops out at
 # 15 rc = 0.25 m/s), slowed for a real room. The sim flies them this many
 # times faster. Forward/back only: the scan's 45 deg turns count heading
-# from the yaw commands (food_orbit.DEG_PER_RC_S), and DONE's sideways
+# from the yaw commands (feeding_behaviour.DEG_PER_RC_S), and DONE's sideways
 # slide is already enough to fire the Giant Fiber.
 FORWARD_SPEED_SCALE = 2.5
 # ...fading back to the Tello's own speed as the banana grows from this
-# fraction of the size food_orbit is flying in to eat at, to that size.
+# fraction of the size feeding_behaviour is flying in to eat at, to that size.
 # At the full speed-up its 10 rc minimum is still ~0.4 m/s, and coming
 # back after a scare (aiming for the bigger pre-scare size) it coasted to
 # ~0.75 m from the card and the Giant Fiber fired on arrival.
@@ -80,14 +80,14 @@ APPROACH_LOOM_FLOOR_OFFSET = 0.8
 class BananaSeekController:
 
     def __init__(self, detector, brain=None, clock=time.time):
-        """detector: a BananaModel.liveDetect.BananaDetector (or anything with
+        """detector: a BananaModel.banana_detector.BananaDetector (or anything with
         its detect()). brain: a FlyBrainController, or None for no fear
-        reflex. clock: seconds, for food_orbit's timers - pass sim time."""
+        reflex. clock: seconds, for feeding_behaviour's timers - pass sim time."""
         self.detector = detector
         self.brain = brain
-        self.food = FoodOrbitBehaviour(clock=clock)
+        self.food = FeedingBehaviour(clock=clock)
         self.detections = []
-        self.scares = 0           # Giant Fiber firings food_orbit reacted to
+        self.scares = 0           # Giant Fiber firings feeding_behaviour reacted to
         self.ignored_scares = 0   # ...and ones it turned down
         self.state = self.food.state
         self.escape_direction = "LEFT"
@@ -97,7 +97,7 @@ class BananaSeekController:
         self._frame_size = (320, 240)
 
     def reset(self):
-        self.food = FoodOrbitBehaviour(clock=self.food._clock)
+        self.food = FeedingBehaviour(clock=self.food._clock)
         self.detections = []
         self._escaping = False
         self._dodging = False
@@ -125,7 +125,7 @@ class BananaSeekController:
         brain_cmd = self.brain.decide(flow, state) if self.brain is not None else None
         escaping = self.brain is not None and self.brain.state == "ESCAPE"
         if escaping and not self._escaping:
-            # A new Giant Fiber firing - same hand-off as tello_camera.py's
+            # A new Giant Fiber firing - same hand-off as fly_tello.py's
             # fear.update() -> behaviour.scare()
             self._dodging = self.food.scare()
             if self._dodging:

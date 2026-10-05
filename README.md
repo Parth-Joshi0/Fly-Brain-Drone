@@ -22,11 +22,11 @@ pipeline (YOLOv8 + a trained ripeness classifier) lets the drone find and
   24-neuron population whose recruitment count sets thrust and steering
   from residual optic flow, standing in for a drone's built-in gyroscope.
   On the real Tello it holds the heading in every state of the banana
-  behaviour (`tello_camera.py --stabilize`), with an efference copy so it
+  behaviour (`fly_tello.py --stabilize`), with an efference copy so it
   doesn't fight the drone's own turns.
 - **Banana seek-and-eat** — a two-stage vision model (YOLOv8n to find a
   banana, a trained MobileNetV2 head to judge ripeness) drives a
-  hover-and-orbit feeding behavior on the real drone.
+  scan-approach-feed behavior on the real drone.
 - **Safety net** — an obstacle-avoidance layer sits between any controller
   (neural, hand-written reflex FSM, or manual keyboard input) and the
   motors, and can override a command outright if something gets too close.

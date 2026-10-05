@@ -1,17 +1,17 @@
 """
 Adapter between main.py's autonomous-controller contract and the real
-Fly-Brain connectome circuit in fly_brain_controller.py.
+Fly-Brain connectome circuit in connectome_worker.py.
 
 main.py only ever talks to an autonomous controller through
 `decide(flow, state) -> command dict` (same shape as ReflexController and
 ManualController - see Simulator/reflex_controller.py's module docstring), plus a
 `.state` string (shown on the HUD, and checked by SafetyLayer.apply()'s
 already_avoiding argument) and a `.reset()` method. This class provides
-exactly that surface, backed by fly_brain_controller.py's
-FlyBrainController instead of Simulator/reflex_controller.py's hand-written state
+exactly that surface, backed by connectome_worker.py's
+ConnectomeNetwork instead of Simulator/reflex_controller.py's hand-written state
 machine.
 
-fly_brain_controller.py needs Brian2 (+pandas/pyarrow) to build and run
+connectome_worker.py needs Brian2 (+pandas/pyarrow) to build and run
 its connectome subnetwork - deliberately NOT installed into this
 project's own venv (main.py's side has no business linking against a
 spiking neural simulator just to fly a drone). So it runs as a separate,
@@ -53,7 +53,7 @@ from Simulator.boundary_math import (heading_rate_toward, outside_bounds, well_i
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
-FLY_BRAIN_SCRIPT = HERE / "fly_brain_controller.py"
+CONNECTOME_WORKER_SCRIPT = HERE / "connectome_worker.py"
 SPIKE_LOG_PATH = REPO_ROOT / "flybrain_spikes.log"
 
 # Looming input: image expansion rate (flow["expansion_*"], 1/s, from
@@ -168,7 +168,7 @@ BOUNDARY_RELEASE_MARGIN = 1.0
 
 def _find_python_with_brian2():
     """Locates a Python interpreter with brian2/pandas/pyarrow installed
-    to run fly_brain_controller.py under. Checked in order: an explicit
+    to run connectome_worker.py under. Checked in order: an explicit
     FLYBRAIN_PYTHON override, the current interpreter (in case someone's
     default env does have brian2), a handful of common conda env
     locations, then `conda run -n brian2 which python`."""
@@ -206,7 +206,7 @@ def _find_python_with_brian2():
 
     raise RuntimeError(
         "Can't find a Python with brian2/pandas/pyarrow installed to run "
-        "fly_brain_controller.py under. Create one, e.g.:\n"
+        "connectome_worker.py under. Create one, e.g.:\n"
         "    conda create -n brian2 python=3.10 brian2 pandas pyarrow\n"
         "or point FLYBRAIN_PYTHON at an existing one's python executable."
     )
@@ -220,19 +220,19 @@ def _pitch_roll(q):
 
 
 class _FlyBrainProcess:
-    """Owns the persistent fly_brain_controller.py subprocess (started
+    """Owns the persistent connectome_worker.py subprocess (started
     once - it takes ~1-3s to load the connectome subgraph and build the
     Brian2 network, nowhere near fast enough to redo every decide() call)
     and its line-delimited JSON protocol."""
 
     def __init__(self, with_dng02=False):
         python = _find_python_with_brian2()
-        # --dng02 makes fly_brain_controller.py build the DNg02 flight-motor
+        # --dng02 makes connectome_worker.py build the DNg02 flight-motor
         # half as well. Without it the network is the original 274 neurons with
         # the original object graph, and therefore the same Poisson RNG stream -
         # so leaving optomotor off doesn't just leave the escape behaviour
         # statistically similar, it leaves it identical.
-        argv = [python, str(FLY_BRAIN_SCRIPT)] + (["--dng02"] if with_dng02 else [])
+        argv = [python, str(CONNECTOME_WORKER_SCRIPT)] + (["--dng02"] if with_dng02 else [])
         self._proc = subprocess.Popen(
             argv,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -241,11 +241,11 @@ class _FlyBrainProcess:
         ready_line = self._proc.stdout.readline()
         if "ready" not in ready_line:
             raise RuntimeError(
-                f"fly_brain_controller.py failed to start:\n{self._proc.stderr.read()}"
+                f"connectome_worker.py failed to start:\n{self._proc.stderr.read()}"
             )
         # The handshake carries the network's own constants and the DNg02 labels
         # in recruitment order. Worth keeping: this process cannot import
-        # fly_brain_controller (no brian2 here on purpose), so this is the only
+        # connectome_worker (no brian2 here on purpose), so this is the only
         # way a log can record what the circuit was ACTUALLY configured with
         # rather than what this side assumed.
         try:
@@ -258,15 +258,15 @@ class _FlyBrainProcess:
 
     def request(self, payload):
         if self._proc.poll() is not None:
-            raise RuntimeError(f"fly_brain_controller.py exited:\n{self._proc.stderr.read()}")
+            raise RuntimeError(f"connectome_worker.py exited:\n{self._proc.stderr.read()}")
         self._proc.stdin.write(json.dumps(payload) + "\n")
         self._proc.stdin.flush()
         line = self._proc.stdout.readline()
         if not line:
-            raise RuntimeError(f"fly_brain_controller.py closed its output:\n{self._proc.stderr.read()}")
+            raise RuntimeError(f"connectome_worker.py closed its output:\n{self._proc.stderr.read()}")
         result = json.loads(line)
         if "error" in result:
-            raise RuntimeError(f"fly_brain_controller.py error: {result['error']}")
+            raise RuntimeError(f"connectome_worker.py error: {result['error']}")
         return result
 
     def close(self):
@@ -279,7 +279,7 @@ class FlyBrainController:
     decide(flow, state) -> command dict contract, same .state/.reset()
     surface, so main.py can swap one for the other without changing
     anything else. See this module's docstring for how it's wired to the
-    real connectome subnetwork, and fly_brain_controller.py for what that
+    real connectome subnetwork, and connectome_worker.py for what that
     subnetwork actually is."""
 
     def __init__(self, bounds=None, *, optomotor=False):
@@ -419,7 +419,7 @@ class FlyBrainController:
         MINUS, and it is the opposite sign to DNp06's yaw in decide().
         DNg02 activity tracks wingbeat amplitude in the CONTRALATERAL wing, so
         more right-side DNg02 means a bigger left wingbeat, which yaws the fly
-        RIGHT - fly_brain_controller.py's steer is positive for exactly that
+        RIGHT - connectome_worker.py's steer is positive for exactly that
         case. This project's convention is positive yaw_rate = turn LEFT.
         Hence subtract. DNp06's yaw is added instead because that circuit
         steers AWAY from a looming object, which is already positive-is-left.

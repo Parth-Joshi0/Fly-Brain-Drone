@@ -23,11 +23,3 @@ python NeuralPathways/EscapeNeuron/Tests/calibrate_looming.py hover_obstacle   #
 ```
 
 Re-run and re-tune the `LOOM_EXPANSION_*` constants in `NeuralPathways/flybrain_controller.py` whenever the camera, `LoomingDetector`, or the drone's flight dynamics change. The loom floor needs to sit above the background noise while approach readings still clear it early enough to dodge. Writes its recordings to a new temp directory each run, not into the repo.
-
-### `camera.py`: manual live-webcam flow check
-
-Standalone script, no project imports — opens the Mac's own webcam (`cv2.VideoCapture(0)`), runs Farneback flow frame-to-frame, and prints/draws the LEFT/CENTER/RIGHT flow split live. Useful as a quick "is optical flow even tracking anything in this room" sanity check before touching the simulator or a real drone. Not an automated test (no pass/fail, no assertions) — press `q` to quit.
-
-```bash
-python NeuralPathways/EscapeNeuron/Tests/camera.py
-```

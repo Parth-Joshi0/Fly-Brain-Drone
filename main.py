@@ -52,10 +52,10 @@ from NeuralPathways.EscapeNeuron.optical_flow import (compute_flow, derotate_flo
 
 # The hand-written CRUISE/AVOID_LEFT/AVOID_RIGHT state machine (default),
 # or the real Fly-Brain connectome circuit (NeuralPathways/
-# flybrain_controller.py -> fly_brain_controller.py's LC4/LPLC2 ->
+# flybrain_controller.py -> connectome_worker.py's LC4/LPLC2 ->
 # DNp01/03/06 looming subnetwork) - same decide(flow, state) contract,
 # swap one line to try it. Needs a Python env with brian2/pandas/pyarrow
-# installed (see fly_brain_controller.py's docstring); it's spawned as a
+# installed (see connectome_worker.py's docstring); it's spawned as a
 # subprocess, so this venv itself doesn't need those.
 USE_FLYBRAIN = True
 
@@ -66,9 +66,9 @@ USE_FLYBRAIN = True
 # thrust adjustment. See FlyBrainController's optomotor=True.
 USE_OPTOMOTOR = True
 
-# Banana seek-and-eat, as flown on the real Tello (Drone/tello_camera.py):
+# Banana seek-and-eat, as flown on the real Tello (Drone/fly_tello.py):
 # BananaModel's YOLOv8 + ripeness detector on the camera frame drives
-# NeuralPathways/FoodNeuron/food_orbit.py's SEARCH -> APPROACH -> FEED ->
+# NeuralPathways/FoodNeuron/feeding_behaviour.py's SEARCH -> APPROACH -> FEED ->
 # DONE -> LAND, with the fly brain (if USE_FLYBRAIN) as a background fear
 # reflex - click to throw a box at it while it eats. Puts a banana on a stand
 # at BANANA_POSITION; replaces course exploration, and NEURON_TEST_MODE
@@ -101,7 +101,7 @@ _ACTION_FOR_STATE = {
     "WALL_ESCAPE": "WALL ESCAPE",
     "EMERGENCY_ESCAPE": "EMERGENCY ESCAPE",
     "BOUNDARY_RETURN": "RETURN TO COURSE",
-    # BananaSeekController's (food_orbit.py's) states
+    # BananaSeekController's (feeding_behaviour.py's) states
     "SEARCH": "LOOKING FOR FOOD",
     "APPROACH": "FLYING TO BANANA",
     "FEED": "EATING",
@@ -265,10 +265,10 @@ def main():
         brain = FlyBrainController(bounds=env["bounds"], optomotor=USE_OPTOMOTOR)
     if USE_BANANA:
         # Imported here so the other modes don't need torch/ultralytics
-        from BananaModel.liveDetect import BananaDetector
+        from BananaModel.banana_detector import BananaDetector
         from Simulator.banana_seek_controller import BananaSeekController
         # Physics time, not wall time: with the detector and the brain in
-        # the loop the sim runs slower than real time, and food_orbit's
+        # the loop the sim runs slower than real time, and feeding_behaviour's
         # timers (hunger, back-off, waits) are about what the drone did.
         autonomous = BananaSeekController(BananaDetector(), brain=brain,
                                           clock=lambda: step_count * sim.physics_dt)
@@ -366,7 +366,7 @@ def main():
                         raw_cmd.update(emergency_keys(input_state))
 
                     # Banana mode flies without the flow SafetyLayer, as the
-                    # real Tello does (tello_camera.py sends rc straight to the
+                    # real Tello does (fly_tello.py sends rc straight to the
                     # drone): it's built for exploring - it speed-stages any
                     # non-hover command up to cruise speed, reads eating in
                     # place as STUCK after STUCK_WINDOW, and steers away from

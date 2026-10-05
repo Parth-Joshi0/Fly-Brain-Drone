@@ -5,7 +5,7 @@ Runs any of this repo's flight scripts with the live brain diagram
     python NeuralPathways/BrainView/show_brain.py main.py
     python NeuralPathways/BrainView/show_brain.py Drone/Tests/tello_escape_flight_test.py --seconds 30
     python NeuralPathways/BrainView/show_brain.py Drone/Tests/tello_optomotor_flight_test.py --dry-run
-    python NeuralPathways/BrainView/show_brain.py Drone/tello_camera.py
+    python NeuralPathways/BrainView/show_brain.py Drone/fly_tello.py
 
 Everything after the script path is passed to that script untouched.
 

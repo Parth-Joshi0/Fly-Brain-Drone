@@ -53,7 +53,7 @@ numbers below came from running exactly this analysis):
     control in Drosophila") states plainly that DNg02's "connectivity with
     LPTCs or other visually responsive neurons remains to be established".
 
-    So fly_brain_controller.py drives these central partners with optic flow.
+    So connectome_worker.py drives these central partners with optic flow.
     That is an explicit modelling assumption - the connectome does not say
     these cells carry a motion signal - and it is the one assumption in this
     circuit. Everything downstream of it (which cell excites or inhibits which
@@ -106,7 +106,7 @@ CELL_TYPE_PREFIX = "DNg02"
 # total |weight| onto the DNg02 population, so this is "the cells that most
 # determine DNg02's activity". 120 keeps ~77% of DNg02's total excitatory input
 # weight for ~11.1k synapses in the merged network (vs 7,973 today); the cost
-# is why this is a constant - see fly_brain_controller.py's step budget and
+# is why this is a constant - see connectome_worker.py's step budget and
 # NeuralPathways/StabilizerNeuron/Tests/test_dng02_circuit.py, which asserts ms/step stays under 33.
 # Coverage/cost at other sizes, measured: 40 -> 56% / 9.1k, 60 -> 64% / ~9.5k,
 # 80 -> 70% / 10.0k, 160 -> 82% / 12.2k.
@@ -125,7 +125,7 @@ REQUIRE_KNOWN_SIDE = True
 MIN_DRIVER_WEIGHT = 5.0
 
 # ipsi_frac thresholds for the human-readable "group" label only. Nothing in
-# fly_brain_controller.py reads these - it uses the continuous w_left/w_right
+# connectome_worker.py reads these - it uses the continuous w_left/w_right
 # split directly, which is strictly more faithful. They exist so the JSON and
 # the HUD can say "this is an ipsilateral inhibitor" in words.
 IPSI_GROUP_THRESHOLD = 0.75
@@ -222,7 +222,7 @@ def build(verbose=False):
             # "Excitatory x Connectivity" - not assumed from neurotransmitter.
             "sign": 1 if row["signed"] > 0 else -1,
             # |weight| this cell puts on the left / right half of the DNg02
-            # population. fly_brain_controller.py uses the ratio to decide how
+            # population. connectome_worker.py uses the ratio to decide how
             # much of a left-vs-right steering signal should reach it.
             "w_left": round(float(row["w_left"]), 2),
             "w_right": round(float(row["w_right"]), 2),

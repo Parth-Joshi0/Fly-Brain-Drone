@@ -2,7 +2,7 @@
 Headless check of the live brain diagram - no drone, no simulator, no brian2.
 
 Drives brain_diagram.attach() on a FAKE brain that sends what
-fly_brain_controller.py does (handshake neuron_ids, per-step "spiked") through
+connectome_worker.py does (handshake neuron_ids, per-step "spiked") through
 quiet -> left-eye loom -> reset, and checks that attach() is transparent, that
 the left LC4/LPLC2 somata glow (and the right ones don't) and the neuron list
 agrees, that a reset clears both, and what a repaint costs.
@@ -29,7 +29,7 @@ from NeuralPathways.BrainView import brain_diagram as bd  # noqa: E402
 
 with open(ROOT / "NeuralPathways" / "looming_circuit_neurons.json") as f:
     LOOMING = json.load(f)
-# fly_brain_controller.py's local order: inputs left then right, then the DNs.
+# connectome_worker.py's local order: inputs left then right, then the DNs.
 CELLS = sorted(LOOMING["input_neurons"], key=lambda n: n["side"]) + LOOMING["output_neurons"]
 
 

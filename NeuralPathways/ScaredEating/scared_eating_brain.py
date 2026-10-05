@@ -16,7 +16,7 @@ Inside, two parts are wired together:
     │            drone is holding still (efference copy)
     │                 │ scared
     │                 ▼
-    └──► banana AI ──► FoodOrbitBehaviour (FoodNeuron/food_orbit.py)
+    └──► banana AI ──► FeedingBehaviour (FoodNeuron/feeding_behaviour.py)
                        scan the room (360) -> fly to banana -> eat;
                        scared -> back straight off -> wait until
                        clear -> come back
@@ -31,15 +31,15 @@ is added to whatever yaw the eating behaviour asks for. It only fights
 rotation the behaviour didn't ask for - see fear_brain.py.
 
 Without scared=True or stabilize=True it's just the eating behaviour
-(no fly brain, so no Brian2 needed). Drone/tello_camera.py does the
+(no fly brain, so no Brian2 needed). Drone/fly_tello.py does the
 rest: camera, safety, screen, keys, flight log.
 """
 
 import threading
 import time
 
-from BananaModel.liveDetect import Detection
-from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour, RCCommand, clamp
+from BananaModel.banana_detector import Detection
+from NeuralPathways.FoodNeuron.feeding_behaviour import FeedingBehaviour, RCCommand, clamp
 
 
 # The banana AI runs on its own thread (_BananaWorker), so the camera +
@@ -209,11 +209,11 @@ class ScaredEatingBrain:
         self.detector = detector
 
         # Slower, more accurate banana AI for the zoomed-in look while
-        # holding still (tello_camera.py passes YOLOv8 small); falls back
+        # holding still (fly_tello.py passes YOLOv8 small); falls back
         # to the normal one
         self.sharp_detector = sharp_detector or detector
 
-        self.behaviour = FoodOrbitBehaviour()
+        self.behaviour = FeedingBehaviour()
 
         self.scared = scared
 
@@ -248,7 +248,7 @@ class ScaredEatingBrain:
     def step(self, frame_bgr, yaw_deg=None, flying=True):
         """
         One camera picture (BGR, not drawn on yet) in, one rc command out
-        (food_orbit.RCCommand: lr, fb, ud, yaw). yaw_deg: the drone's
+        (feeding_behaviour.RCCommand: lr, fb, ud, yaw). yaw_deg: the drone's
         compass heading, if known - counts the scan's turns. flying:
         False in a dry run, so the fly brain knows the drone isn't
         actually doing the moves it's asked to (and doesn't ignore waves).
@@ -263,7 +263,7 @@ class ScaredEatingBrain:
 
 
         # Banana AI on its own thread: give it this picture if it's free
-        # (a copy - tello_camera.py draws on the frame afterwards). Holding
+        # (a copy - fly_tello.py draws on the frame afterwards). Holding
         # still to look for it -> the slow, careful sharp-eyes look.
         self.banana.submit(frame_bgr.copy(), sharp=self.behaviour.wants_zoom)
 
@@ -280,7 +280,7 @@ class ScaredEatingBrain:
         h, w = frame_bgr.shape[:2]
 
         # Lets the behaviour tell when the coast is clear to come back
-        # (nothing looming) - see food_orbit.py's COME BACK FAST
+        # (nothing looming) - see feeding_behaviour.py's COME BACK FAST
         if self.fear is not None:
             self.behaviour.escape_level = self.fear.escape_level
 

@@ -19,7 +19,7 @@ the methods below.
 import math
 import pybullet as p
 
-from Simulator.drone_sim import QuadcopterBody
+from Simulator.quadcopter_body import QuadcopterBody
 from Simulator.camera import DroneCamera
 from Drone.drone_interface import DroneInterface
 

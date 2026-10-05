@@ -107,7 +107,7 @@ def stub_cv2_display():
 
 
 class FakeCameraTello(FakeTello):
-    """The extra djitellopy calls tello_camera.py makes."""
+    """The extra djitellopy calls fly_tello.py makes."""
 
     def connect(self):
         pass
@@ -139,11 +139,11 @@ class NoBananaDetector:
         pass
 
 
-def run_tello_camera(log_dir, seconds):
-    """tello_camera.py --scared --stabilize as a dry run: the banana-eating
+def run_fly_tello(log_dir, seconds):
+    """fly_tello.py --scared --stabilize as a dry run: the banana-eating
     drone brain with the fly brain's escape + DNg02 circuits, HUD and flight
     log. Quits with 'q' after `seconds` (it has no time limit of its own)."""
-    import Drone.tello_camera as cam
+    import Drone.fly_tello as cam
     cam.Tello = FakeCameraTello
     cam.BananaDetector = NoBananaDetector
     cam.LOG_DIR = str(log_dir)
@@ -159,9 +159,9 @@ def run_tello_camera(log_dir, seconds):
     sys.argv = ["x", "--scared", "--stabilize"]
     try:
         cam.main()
-        check(True, "tello_camera --scared --stabilize: main() returned cleanly")
+        check(True, "fly_tello --scared --stabilize: main() returned cleanly")
     except Exception as exc:
-        check(False, f"tello_camera: raised {type(exc).__name__}: {exc}")
+        check(False, f"fly_tello: raised {type(exc).__name__}: {exc}")
         import traceback
         traceback.print_exc()
     finally:
@@ -240,20 +240,20 @@ def main():
     # The banana-eating drone brain with every fly-brain circuit on. Long
     # enough for the fly brain to arm (ARM_GRACE_SECONDS + WARMUP_FRAMES), so
     # the DNg02 HUD line and log columns actually get evaluated.
-    print("\n--- tello_camera --scared --stabilize, dry run ---")
+    print("\n--- fly_tello --scared --stabilize, dry run ---")
     cam_dir = tmp / "camera"
-    run_tello_camera(cam_dir, seconds=8)
+    run_fly_tello(cam_dir, seconds=8)
     import csv
     flights = sorted(cam_dir.glob("flight_*.csv"))
     if not flights:
-        check(False, "tello_camera: no flight log written")
+        check(False, "fly_tello: no flight log written")
     else:
         with open(flights[-1]) as f:
             rows = list(csv.DictReader(f))
         armed = [r for r in rows if r["brain"] not in ("", "ARMING")]
-        check(len(armed) >= 3, f"tello_camera: {len(armed)} of {len(rows)} rows with the fly brain armed")
+        check(len(armed) >= 3, f"fly_tello: {len(armed)} of {len(rows)} rows with the fly brain armed")
         check(all(r["dng02_steer"] != "" for r in armed),
-              "tello_camera: DNg02 columns filled on every armed row")
+              "fly_tello: DNg02 columns filled on every armed row")
 
     # And the analyser has to read back what the loop just wrote - the two
     # drifted apart once already when a column was added.

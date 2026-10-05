@@ -74,7 +74,7 @@
           <text x="645" y="170" text-anchor="middle" class="t-sm">how ripe?</text>
         </svg>
       </div>
-      <figcaption><b>Fig. 1</b>Two-stage inference in <code>BananaDetector</code> (<code>liveDetect.py</code>). Each detected box is padded by 8% of its width and height before cropping, so the classifier sees the banana's edges and some context.</figcaption>
+      <figcaption><b>Fig. 1</b>Two-stage inference in <code>BananaDetector</code> (<code>banana_detector.py</code>). Each detected box is padded by 8% of its width and height before cropping, so the classifier sees the banana's edges and some context.</figcaption>
     </figure>
   </section>
 
@@ -157,7 +157,7 @@
         </tbody>
       </table>
     </div>
-    <p class="small muted">Sources: <code>food_detection/liveDetect.py</code> (<code>BananaDetector</code> defaults) and <code>controllers/food_orbit.py</code>.</p>
+    <p class="small muted">Sources: <code>BananaModel/banana_detector.py</code> (<code>BananaDetector</code> defaults) and <code>NeuralPathways/FoodNeuron/feeding_behaviour.py</code>.</p>
     <p>The detector threshold is deliberately low. COCO's banana class is a general-purpose category, and a drone's-eye view of a single banana, often green or brown and at a distance, tends to score low even when the detection is correct.</p>
   </section>
 

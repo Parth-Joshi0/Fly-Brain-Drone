@@ -122,7 +122,7 @@ from Drone.Tests.tello_neuron_test import (DEFAULT_VERTICAL_FOV, FIRST_FRAME_TIM
                                        open_tello, percentile, read_attitude)
 
 # The network's own constants (MAX_DRIVE_RATE, the recruitment curves, ...) are
-# NOT imported - fly_brain_controller needs brian2, which this interpreter
+# NOT imported - connectome_worker needs brian2, which this interpreter
 # deliberately does not have. They arrive from the subprocess's ready
 # handshake instead, which is strictly better: the log then records what the
 # network was actually built with rather than what this side assumed.

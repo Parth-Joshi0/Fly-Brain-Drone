@@ -1,5 +1,5 @@
 """Headless end-to-end test of banana seek-and-eat in the simulator: the
-BananaModel detector on the sim camera -> food_orbit.py's behaviour, with the
+BananaModel detector on the sim camera -> feeding_behaviour.py's behaviour, with the
 fly brain (escape + DNg02) running alongside - main.py's USE_BANANA loop, in a
 PyBullet DIRECT session. No GUI, no keyboard.
 
@@ -9,14 +9,14 @@ Scenarios:
             the Giant Fiber. Firings at other times are printed, not failed
             - see "Giant Fiber firings" in the summary.
     scare   the click-test box is thrown at it a few seconds into FEED.
-            Pass = the brain fires ESCAPE, the box misses, food_orbit goes
+            Pass = the brain fires ESCAPE, the box misses, feeding_behaviour goes
             SCARED -> WAIT -> back to eating, and it still finishes and lands.
 
 Run under an env with pybullet + opencv + torch + ultralytics (the brain
 subprocess finds its own brian2 env, see NeuralPathways/flybrain_controller.py):
     python Simulator/Tests/test_banana_sim.py eat|scare [-v] [--gui] [--no-brain] [--no-optomotor]
 -v prints every decision cycle instead of every 15th. --no-brain runs
-food_orbit alone (no fear reflex, so only `eat` makes sense); --no-optomotor
+feeding_behaviour alone (no fear reflex, so only `eat` makes sense); --no-optomotor
 leaves the DNg02 half out of the brain.
 """
 import math
@@ -35,7 +35,7 @@ if not GUI:
     p.connect = lambda *_a, **_k: _real_connect(p.DIRECT)
 
 import main as M
-from BananaModel.liveDetect import BananaDetector
+from BananaModel.banana_detector import BananaDetector
 from Simulator.banana_seek_controller import BananaSeekController
 from Simulator.pybullet_simulator import PyBulletSimulator
 from NeuralPathways.EscapeNeuron.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
@@ -70,7 +70,7 @@ flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0,
         "expansion_left": 0.0, "expansion_center": 0.0, "expansion_right": 0.0}
 flying = cycle = 0
 prev_state = prev_brain_state = None
-firings = []   # (t, food_orbit state when the brain's Giant Fiber fired)
+firings = []   # (t, feeding_behaviour state when the brain's Giant Fiber fired)
 feed_start = obstacle_spawned = None
 states_seen, escapes, min_gap = [], [], float("inf")
 obs_id = None
@@ -149,7 +149,7 @@ names = [st for _, st in states_seen]
 print(f"\n===== SUMMARY [{MODE}] brain={USE_BRAIN} optomotor={OPTOMOTOR and USE_BRAIN} =====")
 print(f"states: {states_seen}")
 print(f"Giant Fiber firings (t, food state): {firings}")
-print(f"dodges flown at t={escapes}; scares food_orbit took: {ctl.scares}, turned down: {ctl.ignored_scares}")
+print(f"dodges flown at t={escapes}; scares feeding_behaviour took: {ctl.scares}, turned down: {ctl.ignored_scares}")
 if obstacle_spawned is not None:
     print(f"box thrown at t={obstacle_spawned:.1f}; closest approach {min_gap:.2f}m")
 print(f"largest DNg02 yaw correction: {dng02_yaw_max:.3f} rad/s")

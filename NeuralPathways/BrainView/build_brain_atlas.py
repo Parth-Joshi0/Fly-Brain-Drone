@@ -20,7 +20,7 @@ draw the spiking cells on top. Saved:
 
     background    H x W x 3 BGR image, with the simulated cells marked in
                   faint yellow and L / R labels
-    circuit_ids   root ids of the 418 cells fly_brain_controller.py simulates
+    circuit_ids   root ids of the 418 cells connectome_worker.py simulates
     circuit_px    their (x, y) pixel on the background
     circuit_region   which of REGIONS each one is in
     circuit_type     TYPES index * 2 + (0 left / 1 right) for each one

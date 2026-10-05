@@ -4,23 +4,23 @@ DJI Tello live banana detection + fly-inspired food behaviour.
 Run from the repo root:
 
 Normal:
-    python Drone/tello_camera.py
+    python Drone/fly_tello.py
 
 This is DRY RUN mode.
 The drone DOES NOT take off.
 
 Real flight:
-    python Drone/tello_camera.py --fly
+    python Drone/fly_tello.py --fly
 
 Scared while eating (fly brain backs away from anything swooping at it,
 then comes back to finish the banana - needs .venv-brain, see
 NeuralPathways/EscapeNeuron/fear_brain.py):
-    python Drone/tello_camera.py --fly --scared
+    python Drone/fly_tello.py --fly --scared
 
 DNg02 stabilizer (the fly brain's flight-motor neurons hold the heading
 steady in every state, on top of the eating behaviour's own turns -
 works with or without --scared, see fear_brain.py):
-    python Drone/tello_camera.py --fly --scared --stabilize
+    python Drone/fly_tello.py --fly --scared --stabilize
 
 Keys:
     q = land and quit
@@ -48,7 +48,7 @@ import cv2
 
 from djitellopy import Tello
 
-from BananaModel.liveDetect import BananaDetector
+from BananaModel.banana_detector import BananaDetector
 from NeuralPathways.ScaredEating.scared_eating_brain import ScaredEatingBrain
 
 

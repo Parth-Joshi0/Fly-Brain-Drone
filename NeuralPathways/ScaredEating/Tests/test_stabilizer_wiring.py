@@ -2,7 +2,7 @@
 
 test_optomotor_sign.py covers the adapter (flow dict -> decide() -> yaw_rate).
 This covers the part the Tello actually runs, from camera pictures to the rc
-yaw that tello_camera.py sends:
+yaw that fly_tello.py sends:
 
     pictures -> FearBrain(stabilize=True): Farneback, efference-copy
              derotation, signed_hemifield_flow -> brain subprocess (DNg02)
@@ -40,7 +40,7 @@ from Drone.tello_drone import RC_YAW_RATE_AT_100
 FRAME_DT = 0.05     # s between pictures (20/s, about what the Tello loop manages)
 SETTLE = 25         # pictures for the DNg02 EMAs to reach the new operating point
 MEASURE = 25        # pictures averaged after that
-TURN_RC = 40        # food_orbit's SCAN_TURN_SPEED
+TURN_RC = 40        # feeding_behaviour's SCAN_TURN_SPEED
 # |rc| a correction must clear to count as clearly signed. The spiking
 # population wobbles the median by ~+-1 run to run, and left-going
 # corrections come out weaker than right-going ones (~-5 vs +9 here - the

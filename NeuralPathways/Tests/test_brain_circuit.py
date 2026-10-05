@@ -1,4 +1,4 @@
-"""Drives the LC4/LPLC2 -> DNp01/03/06 circuit (fly_brain_controller.py)
+"""Drives the LC4/LPLC2 -> DNp01/03/06 circuit (connectome_worker.py)
 directly with fixed looming inputs and reports spikes per output neuron,
 escape/yaw/forward. No simulator involved.
 
@@ -13,13 +13,13 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import fly_brain_controller as fbc
+import connectome_worker as cw
 
 ESCAPE_STATE_THRESHOLD = 0.6  # NeuralPathways/flybrain_controller.py
 STEPS = 50                    # x 20ms = 1s of sustained stimulus
 
-circuit = fbc._load_circuit()
-i_pre, i_post, w = fbc._load_synapses(circuit["root_to_local"])
+circuit = cw._load_circuit()
+i_pre, i_post, w = cw._load_synapses(circuit["root_to_local"])
 n_in = circuit["n_left"] + circuit["n_right"]
 names = [f"{n['cell_type']}_{n['side']}" for n in circuit["outputs"]]
 print(f"synapses: {len(w)}  inputs: {n_in} (L={circuit['n_left']} R={circuit['n_right']})")
@@ -33,7 +33,7 @@ for k, name in enumerate(names):
     print(f"  {name:12s} " + ", ".join(f"{s}:{v:.0f}" for s, v in sorted(by_src.items())))
 
 t0 = time.time()
-c = fbc.FlyBrainController()
+c = cw.ConnectomeNetwork()
 dn_local = {name: n_in + k for k, name in enumerate(names)}
 spiked_mismatches = 0   # step()'s "spiked" list (BrainView's map) vs its own spike_counts
 print(f"\nnetwork build: {time.time() - t0:.1f}s")

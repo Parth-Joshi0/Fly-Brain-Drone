@@ -9,8 +9,8 @@ Everything specific to flying — the abstract drone contract, the real DJI Tell
 | `drone_interface.py` | Abstract `DroneInterface` contract (`takeoff`, `land`, `move_forward`, `get_state`, ...) between the autonomous/manual controllers and whatever is actually flying the drone. |
 | `tello_drone.py` | Concrete `DroneInterface` backed by a real DJI Tello over `djitellopy`. No physics/PID cascade — the Tello's own onboard flight controller handles that; this class's job is bookkeeping (flight state, a dead-reckoned position estimate) and translating `DroneInterface` calls into `send_rc_control()`. Also where `TELLO_YAW_SIGN` lives — see Notes. |
 | `manual_controller.py` | Manual-flight controller. Reads the normalized input dict any `SimulatorInterface.poll_input()` produces, so it works unchanged whether input came from the PyBullet GUI or a real controller flying the real drone. |
-| `tello_camera.py` | The live "find and eat a banana" flight script: DJI Tello + `BananaModel`'s detector + `NeuralPathways/FoodNeuron`'s `FoodOrbitBehaviour`. Defaults to a dry run (no takeoff); `--fly` for a real flight, `--scared` for the escape reflex, `--stabilize` for the DNg02 yaw stabilizer (see `NeuralPathways/ScaredEating/README.md`). Writes one CSV per run to `flight_logs/` and prints the loop rate / brain time at the end. |
-| `flight_logs/` | All log output lands here — both real-flight telemetry from `tello_camera.py` (`flight_<timestamp>.csv`, one row per frame) and the diagnostic text logs the `Tests/` scripts write (see below). |
+| `fly_tello.py` | The live "find and eat a banana" flight script: DJI Tello + `BananaModel`'s detector + `NeuralPathways/FoodNeuron`'s `FeedingBehaviour`. Defaults to a dry run (no takeoff); `--fly` for a real flight, `--scared` for the escape reflex, `--stabilize` for the DNg02 yaw stabilizer (see `NeuralPathways/ScaredEating/README.md`). Writes one CSV per run to `flight_logs/` and prints the loop rate / brain time at the end. |
+| `flight_logs/` | All log output lands here — both real-flight telemetry from `fly_tello.py` (`flight_<timestamp>.csv`, one row per frame) and the diagnostic text logs the `Tests/` scripts write (see below). |
 
 ## Tests (`Tests/`)
 
@@ -86,7 +86,7 @@ python Drone/Tests/tello_optomotor_flight_test.py [--seconds 20] [--dry-run] [--
 
 ### `test_tello_harness_smoke.py`: do the drone scripts actually run?
 
-Runs the real `main()` of `tello_dng02_test.py`, `tello_neuron_test.py`, `tello_optomotor_flight_test.py` (dry run) and `tello_camera.py --scared --stabilize` (dry run, no banana model) against a **fake** drone (fake attitude, fake moving frames, `cv2` display calls stubbed) — no hardware, ~1 minute.
+Runs the real `main()` of `tello_dng02_test.py`, `tello_neuron_test.py`, `tello_optomotor_flight_test.py` (dry run) and `fly_tello.py --scared --stabilize` (dry run, no banana model) against a **fake** drone (fake attitude, fake moving frames, `cv2` display calls stubbed) — no hardware, ~1 minute.
 
 ```bash
 venv/bin/python Drone/Tests/test_tello_harness_smoke.py
@@ -101,7 +101,7 @@ Every timing number in this repo (swat catching 4/4 at ~16 pictures/s, `MAX_BRAI
 1. Create `.venv-brain` at the repo root (it's gitignored, so it doesn't come with the clone): `python3 -m venv .venv-brain && .venv-brain/bin/pip install "brian2==2.5.1" "numpy<2" pandas pyarrow`. Brian2 compiles C++ on first use - needs Xcode command-line tools, and do it once with internet, not on the Tello's wifi.
 2. `venv/bin/python Drone/Tests/test_tello_harness_smoke.py` - also prints `Machine:` and the loop/brain timing for that laptop.
 3. `python Drone/Tests/tello_neuron_test.py` again (props off) - the 5/5 swat result is from the Air.
-4. A dry run of `python Drone/tello_camera.py --scared --stabilize`, waving a hand: check the end-of-run `Loop:` line stays at 15+/s with the banana model running.
+4. A dry run of `python Drone/fly_tello.py --scared --stabilize`, waving a hand: check the end-of-run `Loop:` line stays at 15+/s with the banana model running.
 
 ## Notes
 

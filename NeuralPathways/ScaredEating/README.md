@@ -2,7 +2,7 @@
 
 The "scared while eating" brain for the real Tello: the drone finds a banana, flies to it and eats — and if something is waved at it while it's holding still, the real fly connectome's escape circuit makes it back straight off, wait until the coast is clear, then come back and finish eating. Joins the two pathways next door:
 
-- **`FoodNeuron/food_orbit.py`** — the eating behaviour (state machine, no Brian2)
+- **`FoodNeuron/feeding_behaviour.py`** — the eating behaviour (state machine, no Brian2)
 - **`EscapeNeuron/fear_brain.py`** — looming → LC4/LPLC2 → DNp01 Giant Fiber → "scared!" (Brian2, via `flybrain_controller.py`)
 
 ## Files
@@ -12,11 +12,11 @@ The "scared while eating" brain for the real Tello: the drone finds a banana, fl
 | `scared_eating_brain.py` | `ScaredEatingBrain`: one `step(picture) -> rc command` call per camera picture. Runs the fly brain on the clean picture first, then the eating behaviour with the latest banana AI result. The banana AI runs on its own background thread (YOLOv8 nano normally; the slower sharp-eyes zoomed look with YOLOv8 small while holding still to search), so the camera + fly brain loop never waits for it and stays fast enough (~15+ pictures/s) to catch a quick hand. Then it adds the DNg02 stabilizer's yaw (`stabilize=True`), and feeds the command back to the fly brain as its efference copy. Without `scared=True` or `stabilize=True` it's just the eating behaviour. |
 | `Tests/test_stabilizer_wiring.py` | Synthetic sliding pictures + fake Tello + the real brain: checks the DNg02 correction's sign, that a *commanded* turn isn't fought (efference copy), and that the sent yaw is behaviour + DNg02. `python NeuralPathways/ScaredEating/Tests/test_stabilizer_wiring.py` |
 
-Used by `Drone/tello_camera.py`, which does the camera, safety checks, screen, keys and flight log:
+Used by `Drone/fly_tello.py`, which does the camera, safety checks, screen, keys and flight log:
 
 ```bash
-python Drone/tello_camera.py --fly --scared
-python Drone/tello_camera.py --fly --scared --stabilize   # + DNg02 stabilizer
+python Drone/fly_tello.py --fly --scared
+python Drone/fly_tello.py --fly --scared --stabilize   # + DNg02 stabilizer
 ```
 
 ## Behaviour
@@ -31,7 +31,7 @@ The same Brian2 network also runs the 24-cell DNg02 flight-motor population (`St
 
 What keeps it from fighting the 360 scan and the turns toward the banana is an **efference copy**, as in a real fly: before DNg02 sees the optic flow, the image motion the behaviour's own yaw command should cause is subtracted (`EFFERENCE_PIXELS_PER_RADIAN` in `EscapeNeuron/fear_brain.py`). Only rotation nobody asked for is corrected. If that constant is off, deliberate turns come out a bit faster or slower (0.75-1.3x over the measured range), never reversed.
 
-Not flown yet in this form: the gain (`DNG02_TELLO_YAW_GAIN = 0.3`) is set to match the loop gain `Drone/Tests/tello_optomotor_flight_test.py` flew at `--yaw-gain 0.6`. And DNg02 makes each brain step slower (~22 ms vs ~13 ms measured on a MacBook Air), which costs pictures/s - `tello_camera.py` prints the loop rate and brain time at the end of every run and warns under 15/s.
+Not flown yet in this form: the gain (`DNG02_TELLO_YAW_GAIN = 0.3`) is set to match the loop gain `Drone/Tests/tello_optomotor_flight_test.py` flew at `--yaw-gain 0.6`. And DNg02 makes each brain step slower (~22 ms vs ~13 ms measured on a MacBook Air), which costs pictures/s - `fly_tello.py` prints the loop rate and brain time at the end of every run and warns under 15/s.
 
 ## Things the fly brain ignores, on purpose
 

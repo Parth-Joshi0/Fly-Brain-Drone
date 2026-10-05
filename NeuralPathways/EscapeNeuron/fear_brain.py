@@ -1,15 +1,15 @@
 """
 Fear reflex for the banana-eating drone: the real looming -> escape
 circuit (LC4/LPLC2 -> DNp01 Giant Fiber, DNp03, DNp06) running on the
-same Tello camera picture that tello_camera.py uses for banana detection.
+same Tello camera picture that fly_tello.py uses for banana detection.
 
     camera frame -> LoomingDetector (image expansion, rotation removed)
                  -> FlyBrainController (Brian2 connectome subprocess)
                  -> did the Giant Fiber just fire (a NEW escape)?
 
 Same pipeline as Drone/tests/tello_escape_flight_test.py, packaged so
-tello_camera.py can ask one question per frame. The brain decides WHEN
-the fly gets scared; food_orbit.py decides HOW the drone reacts (a
+fly_tello.py can ask one question per frame. The brain decides WHEN
+the fly gets scared; feeding_behaviour.py decides HOW the drone reacts (a
 clear back-off, then come back and keep eating). The brain's own dodge
 command isn't used: on the real Tello it only pushed for ~0.17 s, far
 too short to see.
@@ -64,7 +64,7 @@ PROC_WIDTH, PROC_HEIGHT = 320, 240
 # slower camera loop hurts more (a fast hand jumps too far between
 # pictures for the optical flow to follow). Tested on quick 0.35 s
 # swipes: 4 steps at 11 pictures/s caught 0/4, 2 steps at 16/s
-# (tello_camera.py runs the banana AI every 3rd picture) caught 4/4.
+# (fly_tello.py runs the banana AI every 3rd picture) caught 4/4.
 BRAIN_STEP_S = 0.02
 
 MAX_BRAIN_STEPS = 2
@@ -163,7 +163,7 @@ class FearBrain:
 
         # Only used for its telemetry (orientation, yaw rate) and its
         # dead-reckoned speed, which raises the brain's loom threshold
-        # while flying forward. tello_camera.py sends the rc commands.
+        # while flying forward. fly_tello.py sends the rc commands.
         self.drone = TelloDrone(tello, frame_read, PROC_WIDTH, PROC_HEIGHT)
 
         self.prev_gray = None

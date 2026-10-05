@@ -11,9 +11,9 @@ Fly-inspired food behaviour.
                  look zoomed in for 1 s, then SCAN)
     -> FEED    keep it in the picture and eat
     -> DONE    full: slide a little right, hover
-    -> LAND    5 s after eating (tello_camera.py lands when should_land)
+    -> LAND    5 s after eating (fly_tello.py lands when should_land)
 
-    SCARED   (tello_camera.py --scared) the fly brain's Giant Fiber
+    SCARED   (fly_tello.py --scared) the fly brain's Giant Fiber
              fired: back straight away (quick 0.7 s jump) - eating pauses
     -> WAIT    steady for 0.3 s, then come back as soon as the coast is
                clear: the fly brain sees nothing looming AND the banana
@@ -303,7 +303,7 @@ def smooth(old_value, new_value, alpha):
 # FOOD BRAIN
 # ============================================================
 
-class FoodOrbitBehaviour:
+class FeedingBehaviour:
 
     def __init__(self, clock=time.time):
 
@@ -328,7 +328,7 @@ class FoodOrbitBehaviour:
         self.done_start_time = None
         self.look_start_time = None
 
-        # Why should_land became True (for tello_camera.py's message)
+        # Why should_land became True (for fly_tello.py's message)
         self.land_reason = ""
 
         # Scared -> back away -> come back
@@ -370,7 +370,7 @@ class FoodOrbitBehaviour:
         # Come back fast: dash until backed_off drops to this
         self.dash_until = 0.0
 
-        # tello_camera.py lands when this becomes True
+        # fly_tello.py lands when this becomes True
         self.should_land = False
 
         # Smooth commands
@@ -644,7 +644,7 @@ class FoodOrbitBehaviour:
 
 
     # ========================================================
-    # SCARED BY THE FLY BRAIN (tello_camera.py --scared)
+    # SCARED BY THE FLY BRAIN (fly_tello.py --scared)
     # ========================================================
 
     def scare(self):

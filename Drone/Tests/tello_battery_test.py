@@ -14,7 +14,7 @@ import argparse
 from djitellopy import Tello
 
 
-# Same limit tello_camera.py uses before it will take off
+# Same limit fly_tello.py uses before it will take off
 MIN_BATTERY_FOR_FLIGHT = 30
 
 

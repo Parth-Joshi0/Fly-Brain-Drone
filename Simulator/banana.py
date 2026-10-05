@@ -1,13 +1,13 @@
 """
 A banana on a stand, for the banana-seek behaviour (NeuralPathways/
-FoodNeuron/food_orbit.py) to find in the simulator.
+FoodNeuron/feeding_behaviour.py) to find in the simulator.
 
 The sim runs the same BananaModel/ detector the real Tello uses, straight
 off the sim camera frame - so the banana has to be something stock COCO
 YOLOv8n will box. A modelled 3D banana was not: PyBullet's tiny renderer
 shades flat, and a curved, tapered, photo-textured tube still read as a pale
 boat to YOLO (det_conf 0.00 at every distance). What does work is the real
-photo in BananaModel/testImage.jpg on a card facing the drone, its countertop
+photo in BananaModel/banana_photo.jpg on a card facing the drone, its countertop
 background painted out white.
 
 Measured with the default 320x240 DroneCamera: detected (det_conf > 0.2)
@@ -34,7 +34,7 @@ import numpy as np
 import pybullet as p
 
 BANANA_PHOTO = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir,
-                            "BananaModel", "testImage.jpg")
+                            "BananaModel", "banana_photo.jpg")
 
 BANANA_WIDTH = 1.2         # m, the card's long side
 BANANA_HEIGHT = 1.45       # m, card centre - about NORMAL_ALTITUDE, so it

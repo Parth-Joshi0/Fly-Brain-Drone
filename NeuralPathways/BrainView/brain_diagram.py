@@ -1,7 +1,7 @@
 """
 Live picture of the fly brain at work: the whole brain drawn as a cloud of its
 real neurons (frontal view, baked by build_brain_atlas.py), with the 418 cells
-fly_brain_controller.py simulates glowing where they actually sit each time
+connectome_worker.py simulates glowing where they actually sit each time
 they spike, fading over ~0.3 s. Below it: which neurons are firing - for each
 simulated cell type and side, how many of its cells spiked this tick (with a
 peak-hold tick) - and a key to the cell types and colours. Modelled on the

@@ -1,4 +1,4 @@
-"""Characterizes the DNg02 flight-motor half of fly_brain_controller.py:
+"""Characterizes the DNg02 flight-motor half of connectome_worker.py:
 does the population recruit in a graded way, does the left/right difference
 respond to an asymmetric request, does any of it disturb the escape circuit,
 and does it all still fit the 30Hz control budget. No simulator, no drone.
@@ -24,12 +24,12 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-import fly_brain_controller as fbc
+import connectome_worker as cw
 
 STEPS = 50              # x 20ms = 1s of sustained stimulus per row
 SETTLE = 15             # windows discarded while the EMAs and membranes settle
 BUDGET_MS = 33.0        # the 30Hz decision loop's slice, same as test_brain_circuit.py
-LEVELS = fbc.DNG02_DRIVE_LEVELS
+LEVELS = cw.DNG02_DRIVE_LEVELS
 
 failures = []
 
@@ -68,8 +68,8 @@ def sweep(c, steps=STEPS, settle=SETTLE, **kw):
 
 
 # ----------------------------------------------------------------- 1. wiring
-circuit = fbc._load_circuit(with_dng02=True)
-i_pre, i_post, w = fbc._load_synapses(circuit["root_to_local"])
+circuit = cw._load_circuit(with_dng02=True)
+i_pre, i_post, w = cw._load_synapses(circuit["root_to_local"])
 n_in, dng02_at, drive_at = circuit["n_in"], circuit["dng02_at"], circuit["drive_at"]
 dng02, drivers = circuit["dng02"], circuit["drivers"]
 dn_names = [f"{n['cell_type']}_{n['side']}" for n in circuit["outputs"]]
@@ -104,7 +104,7 @@ print("  (no EXCITATORY path onto DNp01 is what keeps optic flow from tripping")
 print("   the Giant Fiber - asserted against live spikes below, not just here)")
 
 t0 = time.time()
-c = fbc.FlyBrainController(with_dng02=True)
+c = cw.ConnectomeNetwork(with_dng02=True)
 print(f"\nnetwork build: {time.time() - t0:.1f}s")
 
 # ------------------------------------------------- 2. symmetric drive sweep
@@ -131,7 +131,7 @@ def as_tuple(key):
     return "(" + ", ".join(f"{r[key]:.1f}" for r in sym) + ")"
 
 
-print("\n  paste into fly_brain_controller.py:")
+print("\n  paste into connectome_worker.py:")
 print(f"    DNG02_RECRUIT_SAT = {sym[-1]['n_left'] + sym[-1]['n_right']:.1f}")
 print(f"    DNG02_DRIVE_LEVELS = {LEVELS}")
 print(f"    DNG02_LEFT_RECRUITMENT = {as_tuple('n_left')}")

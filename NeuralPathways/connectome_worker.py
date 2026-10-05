@@ -367,7 +367,7 @@ def _load_synapses(root_to_local):
     return i_pre, i_post, weights
 
 
-class FlyBrainController:
+class ConnectomeNetwork:
     def __init__(self, step_dt=STEP_DT, with_dng02=False):
         self.step_dt = step_dt
         self.with_dng02 = with_dng02
@@ -629,7 +629,7 @@ def _serve_stdio():
     purpose - NeuralPathways/flybrain_controller.py owns retries/timeouts.
     Every key is optional and defaults to 0.0, so an older caller that only
     sends loom_left/loom_right gets exactly the behaviour it always did."""
-    controller = FlyBrainController(with_dng02="--dng02" in sys.argv)
+    controller = ConnectomeNetwork(with_dng02="--dng02" in sys.argv)
     # The ready line carries the constants actually in effect in THIS process.
     # The caller lives in a different interpreter and cannot import this module
     # (no brian2 there, deliberately), so without this a test log could only
