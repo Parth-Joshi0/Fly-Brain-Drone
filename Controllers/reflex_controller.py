@@ -47,7 +47,7 @@ ManualController.decide() returns. flybrain_controller.py implements the
 same shape.
 """
 
-from Simulator.boundary_math import (
+from Controllers.boundary_math import (
     heading_error_toward,
     heading_rate_toward,
     near_or_outside_bounds,

@@ -53,8 +53,8 @@ There are two questions, and they need different experiments, hence --mode:
 Run (needs djitellopy + opencv + numpy; the brain runs as a subprocess under
 whichever env has brian2 - see NeuralPathways/flybrain_controller.py):
 
-    python Drone/Tests/tello_dng02_test.py --mode calibrate
-    python Drone/Tests/tello_dng02_test.py --mode pan
+    python Drone/FlightTests/tello_dng02_test.py --mode calibrate
+    python Drone/FlightTests/tello_dng02_test.py --mode pan
 
     --seconds N     live phase length (default 60)
     --baseline N    quiet phase before it (default 10)
@@ -67,7 +67,7 @@ whichever env has brian2 - see NeuralPathways/flybrain_controller.py):
 
 Afterwards, score the run instead of trusting your eyes on the HUD:
 
-    python Drone/Tests/tello_dng02_test.py --analyze            # scores --log's path
+    python Drone/FlightTests/tello_dng02_test.py --analyze            # scores --log's path
 
 No drone and no brain needed - it reads the log back and reports whether the
 population actually recruited in the committed ladder order, whether the
@@ -115,11 +115,11 @@ from NeuralPathways.EscapeNeuron.optical_flow import (compute_flow, derotate_flo
                                  signed_hemifield_flow, LoomingDetector,
                                  _PIXELS_PER_RADIAN)
 from Drone.tello_drone import TELLO_YAW_SIGN
-from Drone.Tests.tello_neuron_test import (DEFAULT_VERTICAL_FOV, FIRST_FRAME_TIMEOUT,
-                                       PROC_HEIGHT, PROC_WIDTH, WARMUP_FRAMES,
-                                       Logger as BaseLogger, euler_deg_to_quat,
-                                       frame_not_ready, git_commit, open_stream,
-                                       open_tello, percentile, read_attitude)
+from Drone.flight_harness import (DEFAULT_VERTICAL_FOV, FIRST_FRAME_TIMEOUT,
+                                  PROC_HEIGHT, PROC_WIDTH, WARMUP_FRAMES,
+                                  TelloLogger as BaseLogger, euler_deg_to_quat,
+                                  frame_not_ready, git_commit, open_stream,
+                                  open_tello, percentile, read_attitude)
 
 # The network's own constants (MAX_DRIVE_RATE, the recruitment curves, ...) are
 # NOT imported - connectome_worker needs brian2, which this interpreter

@@ -4,11 +4,11 @@ Fly-Brain connectome circuit in connectome_worker.py.
 
 main.py only ever talks to an autonomous controller through
 `decide(flow, state) -> command dict` (same shape as ReflexController and
-ManualController - see Simulator/reflex_controller.py's module docstring), plus a
+ManualController - see Controllers/reflex_controller.py's module docstring), plus a
 `.state` string (shown on the HUD, and checked by SafetyLayer.apply()'s
 already_avoiding argument) and a `.reset()` method. This class provides
 exactly that surface, backed by connectome_worker.py's
-ConnectomeNetwork instead of Simulator/reflex_controller.py's hand-written state
+ConnectomeNetwork instead of Controllers/reflex_controller.py's hand-written state
 machine.
 
 connectome_worker.py needs Brian2 (+pandas/pyarrow) to build and run
@@ -49,7 +49,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from Simulator.boundary_math import (heading_rate_toward, outside_bounds, well_inside_bounds)
+from Controllers.boundary_math import (heading_rate_toward, outside_bounds, well_inside_bounds)
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
@@ -76,7 +76,7 @@ LOOM_EXPANSION_SPAN = 2.0
 YAW_RATE_SCALE = 0.9          # rad/s at |yaw|=1.0 - comparable to
                                 # safety_layer's EMERGENCY_TURN_RATE
 CRUISE_FORWARD_SPEED = 1.0    # m/s at forward=1.0 - matches
-                                # Simulator/reflex_controller's CRUISE_SPEED
+                                # Controllers/reflex_controller's CRUISE_SPEED
 ESCAPE_STATE_THRESHOLD = 0.6  # escape signal above this -> "ESCAPE" state
 AVOID_STATE_THRESHOLD = 0.05  # |yaw| above this -> "AVOID_LEFT"/"AVOID_RIGHT" state
 
@@ -152,13 +152,13 @@ OPTOMOTOR_SETPOINT_SPAN = 1.2   # error that maps to a full request
 OPTOMOTOR_STATE_THRESHOLD = 0.2  # |steer| above this -> "OPTOMOTOR" state
 
 # --- Boundary containment - same behavior as
-# Simulator/reflex_controller.py's BOUNDARY_RETURN state, with its own
+# Controllers/reflex_controller.py's BOUNDARY_RETURN state, with its own
 # copy of the tuning constants below: the neural circuit only ever sees
 # looming, it has no notion of this course's flight-area edges, so it
 # needs independent handling exactly like ReflexController already does,
 # and each autonomous controller is meant to be self-contained/swappable
-# (see Simulator/reflex_controller.py's "Swap-in contract" note). The stateless
-# geometry itself (Simulator/boundary_math.py) is shared - only the
+# (see Controllers/reflex_controller.py's "Swap-in contract" note). The stateless
+# geometry itself (Controllers/boundary_math.py) is shared - only the
 # tuning and state-machine behavior are kept independent. ---
 BOUNDARY_FORWARD_SPEED = 0.5
 BOUNDARY_TURN_RATE = 0.35
@@ -297,7 +297,7 @@ class FlyBrainController:
         self._prev_tilt = None
         self._rotation_floor = 0.0
         # Extra loom floor a caller sets while it is deliberately closing on
-        # something (Simulator/banana_seek_controller.py, flying to and
+        # something (Controllers/banana_seek_controller.py, flying to and
         # eating the banana): that target growing in view isn't a threat.
         self.loom_floor_offset = 0.0
         self.dng02 = {"n_left": 0, "n_right": 0, "thrust": 0.0, "steer": 0.0, "counts": {}}
@@ -412,7 +412,7 @@ class FlyBrainController:
     def dng02_yaw_rate(self, escape=None):
         """The DNg02 stabilizer's yaw correction from the last decide(),
         rad/s (0.0 unless optomotor=True). decide() adds it to cruise
-        steering; Simulator/banana_seek_controller.py adds it to the food
+        steering; Controllers/banana_seek_controller.py adds it to the food
         behaviour's own steering instead. escape defaults to the level the
         last decide() saw.
 

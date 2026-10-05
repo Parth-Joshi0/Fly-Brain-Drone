@@ -1,5 +1,5 @@
 """
-Helper functions for Simulator/reflex_controller.py
+Helper functions for Controllers/reflex_controller.py
 """
 
 import math

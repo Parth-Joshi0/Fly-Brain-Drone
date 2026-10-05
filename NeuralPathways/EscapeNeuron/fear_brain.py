@@ -47,7 +47,7 @@ if _BRAIN_PYTHON.exists():
     os.environ.setdefault("FLYBRAIN_PYTHON", str(_BRAIN_PYTHON))
 
 from NeuralPathways.flybrain_controller import FlyBrainController, ESCAPE_STATE_THRESHOLD, DNG02_YAW_AUTHORITY
-from Drone.tello_drone import TelloDrone, RC_SPEED_SCALE, RC_YAW_RATE_AT_100, _rate_to_rc
+from Drone.tello_drone import TelloDrone, RC_SPEED_SCALE, RC_YAW_RATE_AT_100, rate_to_rc
 from NeuralPathways.EscapeNeuron.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
                                                       grid_flow_strengths, signed_hemifield_flow)
 
@@ -344,7 +344,7 @@ class FearBrain:
             yaw_rate = max(-DNG02_YAW_AUTHORITY, min(DNG02_YAW_AUTHORITY, yaw_rate))
 
             # +left rad/s -> Tello's +right rc
-            self.dng02_yaw_rc = _rate_to_rc(-yaw_rate)
+            self.dng02_yaw_rc = rate_to_rc(-yaw_rate)
 
 
         # Moving on purpose? Then what the eyes see is our own motion.

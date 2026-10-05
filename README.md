@@ -52,7 +52,7 @@ both the simulator and the real drone, through two small interfaces:
   (real Tello) and `Simulator/pybullet_drone.py` (simulated).
 - Every controller shares one `decide(flow, state)` contract, so
   `NeuralPathways/flybrain_controller.py` (the real connectome) and
-  `Simulator/reflex_controller.py` (a hand-written state-machine
+  `Controllers/reflex_controller.py` (a hand-written state-machine
   alternative) are drop-in swaps for each other.
 
 This is why `main.py` (simulator entry point) doesn't change when the
@@ -64,11 +64,11 @@ underlying drone does — only the interface implementation does.
 |---|---|
 | [`NeuralPathways/`](NeuralPathways/README.md) | The real fly connectome as a live Brian2 controller — escape circuit + the in-progress DNg02 flight-motor/stabilizer circuit. |
 | [`Simulator/`](Simulator/README.md) | PyBullet-backed virtual drone, camera, and obstacle course used for development and headless evaluation. |
-| [`Drone/`](Drone/README.md) | The real DJI Tello: flight interface, manual control, the live banana-eating flight script, and the real-hardware test suite. |
+| [`Drone/`](Drone/README.md) | The real DJI Tello: flight interface, the live banana-eating flight script, and the real-hardware test suite. |
+| [`Controllers/`](Controllers/README.md) | The non-neural controllers (reflex FSM, banana seek, manual), the shared command dict, and the `SafetyLayer` override that sits between any controller and the motors. |
 | [`BananaModel/`](BananaModel/README.md) | YOLOv8 + MobileNetV2 pipeline that finds bananas and judges ripeness (93.6% test accuracy). |
 | [`Website/`](Website/README.md) | Static whitepaper site (plain HTML/CSS/JS, Vite for dev/build) documenting the project. |
 | [`main.py`](main.py) | Interactive simulator entry point — visual PyBullet run with manual/autonomous mode switching and debug overlays. |
-| [`safety_layer.py`](safety_layer.py) | The obstacle-avoidance override that sits between any controller and the motors. |
 
 ## Getting started
 
@@ -94,8 +94,8 @@ Needs `djitellopy` (included in `requirements.txt`) and a Tello on wifi.
 Start with the desk tests — nothing here calls `takeoff()`:
 
 ```bash
-python Drone/Tests/tello_battery_test.py       # connectivity + battery
-python Drone/Tests/tello_neuron_test.py        # props off: does the brain see a swat?
+python Drone/FlightTests/tello_battery_test.py       # connectivity + battery
+python Drone/FlightTests/tello_neuron_test.py        # props off: does the brain see a swat?
 ```
 
 then the flight tests, in order of how much trust they require. See

@@ -197,9 +197,9 @@ def main():
     tmp = Path(tempfile.mkdtemp(prefix="tello_smoke_"))
     print(f"logs -> {tmp}\n")
 
-    import Drone.Tests.tello_dng02_test as dng
-    import Drone.Tests.tello_neuron_test as neu
-    import Drone.Tests.tello_optomotor_flight_test as opto
+    import Drone.FlightTests.tello_dng02_test as dng
+    import Drone.FlightTests.tello_neuron_test as neu
+    import Drone.FlightTests.tello_optomotor_flight_test as opto
 
     # Every mode x the video path, because the HUD is mode-dependent and is
     # exactly where the untested code lives.

@@ -50,7 +50,7 @@ MAX_RC_PERCENT = 100
 # position) is in one convention.
 #
 # MEASURED, not assumed, which is the point of it being a named constant:
-# Drone/Tests/tello_dng02_test.py --mode calibrate regresses horizontal optic flow
+# Drone/FlightTests/tello_dng02_test.py --mode calibrate regresses horizontal optic flow
 # against the reported yaw. On 2026-09-27 that fit came out at -86.6 with
 # R^2 0.888, negative at every window size from 1 to 30 frames. A matching
 # convention would have given a positive slope. Re-run that mode after any
@@ -79,7 +79,7 @@ def _mps_to_rc(speed_mps):
     return max(-MAX_RC_PERCENT, min(MAX_RC_PERCENT, round(speed_mps * RC_SPEED_SCALE)))
 
 
-def _rate_to_rc(rate_rad_s, rate_at_100=RC_YAW_RATE_AT_100):
+def rate_to_rc(rate_rad_s, rate_at_100=RC_YAW_RATE_AT_100):
     """rate_at_100: assumed yaw rate (rad/s) at 100% yaw RC - also unverified,
     see module docstring."""
     return max(-MAX_RC_PERCENT, min(MAX_RC_PERCENT, round(rate_rad_s / rate_at_100 * 100)))
@@ -90,7 +90,7 @@ class TelloDrone(DroneInterface):
     def __init__(self, tello, frame_read, proc_width=320, proc_height=240):
         """tello: a connected, streamed-on djitellopy.Tello. frame_read: its
         get_frame_read() result. Both constructed by the caller (see
-        Drone/Tests/tello_escape_flight_test.py) so this class never owns the
+        Drone/FlightTests/tello_escape_flight_test.py) so this class never owns the
         connect/streamon handshake or its failure modes - those need
         different retry/abort handling than anything else here."""
         self._tello = tello
@@ -254,7 +254,7 @@ class TelloDrone(DroneInterface):
         # (positive = turn left / ccw, see turn_left/turn_right above and
         # Simulator/pybullet_drone.py); Tello's yaw_velocity is the
         # opposite sign (+100 = cw/right, per the module docstring), so flip it.
-        yaw = _rate_to_rc(-self.target_yaw_rate)
+        yaw = rate_to_rc(-self.target_yaw_rate)
         self._tello.send_rc_control(lr, fb, ud, yaw)
 
     def reset(self):

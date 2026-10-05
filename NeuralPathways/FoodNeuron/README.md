@@ -6,7 +6,7 @@ The fly-inspired "hover → eat" feeding behaviour, separate from the escape/DNg
 
 | File | What it does |
 |---|---|
-| `feeding_behaviour.py` | `FeedingBehaviour`: a small state machine — `SEARCH` (turn a little, hover, repeat, looking for a banana) → `FEED` (banana seen: hold position, keep it in frame, eat) → `DONE` (full: slide right, hover) → `LAND` (5s after eating). Any banana counts as food (see `BANANA_LABELS`); hunger only drops while a banana is actually in view. The drone never flies closer to it — it eats from wherever it first saw the banana, only making small corrective moves to keep it in frame. Consumed by `Drone/fly_tello.py`, which feeds it detections from `BananaModel`, and by the simulator's `Simulator/banana_seek_controller.py` (`main.py`'s `USE_BANANA`), which passes physics time in as its `clock` so its timers follow the sim rather than the wall. |
+| `feeding_behaviour.py` | `FeedingBehaviour`: a small state machine — `SEARCH` (turn a little, hover, repeat, looking for a banana) → `FEED` (banana seen: hold position, keep it in frame, eat) → `DONE` (full: slide right, hover) → `LAND` (5s after eating). Any banana counts as food (see `BANANA_LABELS`); hunger only drops while a banana is actually in view. The drone never flies closer to it — it eats from wherever it first saw the banana, only making small corrective moves to keep it in frame. Consumed by `Drone/fly_tello.py`, which feeds it detections from `BananaModel`, and by the simulator's `Controllers/banana_seek_controller.py` (`main.py`'s `USE_BANANA`), which passes physics time in as its `clock` so its timers follow the sim rather than the wall. |
 
 ## Tests
 

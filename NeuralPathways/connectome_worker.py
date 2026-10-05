@@ -12,7 +12,7 @@ them now share one network:
                                        approaching fast" detectors.
         |
         | 7,973 real FlyWire synapses (this repo's own v630 connectome -
-        | see looming_circuit_neurons.json for exactly which 274 neurons
+        | see EscapeNeuron/looming_circuit_neurons.json for exactly which 274 neurons
         | and data/2023_03_23_connectivity_630_final.parquet for the
         | synapse weights actually used)
         v
@@ -178,7 +178,7 @@ from brian2 import NeuronGroup, Synapses, PoissonGroup, SpikeMonitor, Network
 from brian2 import mV, ms, Hz, second
 
 HERE = Path(__file__).resolve().parent
-NEURON_IDS_PATH = HERE / "looming_circuit_neurons.json"
+NEURON_IDS_PATH = HERE / "EscapeNeuron" / "looming_circuit_neurons.json"
 DNG02_IDS_PATH = HERE / "StabilizerNeuron" / "dng02_circuit_neurons.json"
 PATH_CON = HERE / "Data" / "2023_03_23_connectivity_630_final.parquet"
 

@@ -37,16 +37,17 @@ PyBulletSimulator, the SimulatorInterface implementation constructed
 below - same pattern as PyBulletDrone/DroneInterface. Swapping to the
 real drone means writing one new SimulatorInterface (and DroneInterface)
 implementation and changing the two lines below that construct them;
-nothing else in this file, or in NeuralPathways/ or Simulator/reflex_controller.py,
+nothing else in this file, or in NeuralPathways/ or Controllers/reflex_controller.py,
 needs to change.
 """
 
 import cv2
 
 from Simulator.pybullet_simulator import PyBulletSimulator, SimulatorError
-from Simulator.reflex_controller import ReflexController
-from Drone.manual_controller import ManualController
-from safety_layer import SafetyLayer
+from Controllers.reflex_controller import ReflexController
+from Controllers.manual_controller import ManualController
+from Controllers.safety_layer import SafetyLayer
+from Controllers.commands import AVOIDING_STATES, EMPTY_CMD, apply_command
 from NeuralPathways.EscapeNeuron.optical_flow import (compute_flow, derotate_flow, grid_flow_strengths,
                                                       signed_hemifield_flow, FlowVisualizer, LoomingDetector)
 
@@ -110,15 +111,6 @@ _ACTION_FOR_STATE = {
     "DONE": "FULL",
     "LAND": "LANDING",
 }
-
-# States where the navigation FSM is already actively steering away from
-# something - SafetyLayer won't layer its own (possibly disagreeing) turn
-# decision on top of any of these, see already_avoiding in its apply().
-_AVOIDING_STATES = ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN", "WALL_ESCAPE", "EMERGENCY_ESCAPE", "ESCAPE")
-
-EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
-             "altitude_delta": 0.0, "hover": False, "land": False, "reset": False,
-             "pressed_direction": "-"}
 
 
 def emergency_keys(input_state):
@@ -206,53 +198,6 @@ def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, f
     return out
 
 
-def apply_command(drone, cmd):
-    """Dispatches one FINAL command dict (already passed through the
-    safety layer) to the drone interface. Returns True if a reset
-    happened, so the caller can clear stale vision/controller state."""
-
-    if cmd["reset"]:
-        drone.reset()
-        drone.takeoff()
-        return True
-
-    if cmd["land"]:
-        drone.land()
-        return False
-
-    if drone.state != "flying":
-        # Still taking off / landing / recovering from an emergency - the
-        # low-level state machine and safety net own the drone right now,
-        # not the controller.
-        return False
-
-    if cmd["hover"]:
-        drone.hover()
-    else:
-        drone.move_forward(cmd["forward_speed"])
-        if cmd["strafe_speed"] > 0:
-            drone.move_left(cmd["strafe_speed"])
-        elif cmd["strafe_speed"] < 0:
-            drone.move_right(-cmd["strafe_speed"])
-        else:
-            drone.move_left(0)
-        if cmd["yaw_rate"] > 0:
-            drone.turn_left(cmd["yaw_rate"])
-        elif cmd["yaw_rate"] < 0:
-            drone.turn_right(-cmd["yaw_rate"])
-        else:
-            drone.turn_left(0)
-
-    if cmd["altitude_delta"] > 0:
-        drone.move_up()
-    elif cmd["altitude_delta"] < 0:
-        drone.move_down()
-    else:
-        drone.relax_altitude()  # drift back toward NORMAL_ALTITUDE when idle
-
-    return False
-
-
 def main():
     sim = PyBulletSimulator(banana_position=BANANA_POSITION if USE_BANANA else None)
     env = sim.connect()
@@ -266,7 +211,7 @@ def main():
     if USE_BANANA:
         # Imported here so the other modes don't need torch/ultralytics
         from BananaModel.banana_detector import BananaDetector
-        from Simulator.banana_seek_controller import BananaSeekController
+        from Controllers.banana_seek_controller import BananaSeekController
         # Physics time, not wall time: with the detector and the brain in
         # the loop the sim runs slower than real time, and feeding_behaviour's
         # timers (hunger, back-off, waits) are about what the drone did.
@@ -379,7 +324,7 @@ def main():
                         # already_avoiding tells it the FSM is already turning
                         # away from something, so it won't add a second,
                         # possibly-disagreeing turn decision on top.
-                        already_avoiding = autonomous.state in _AVOIDING_STATES
+                        already_avoiding = autonomous.state in AVOIDING_STATES
                         final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
                     else:
                         final_cmd = raw_cmd

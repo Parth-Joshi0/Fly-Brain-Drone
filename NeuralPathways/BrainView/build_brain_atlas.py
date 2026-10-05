@@ -47,7 +47,7 @@ sys.path.insert(0, str(PATHWAYS.parent))
 from NeuralPathways.StabilizerNeuron.build_dng02_circuit import (  # noqa: E402
     ANNOTATIONS_CACHE, ANNOTATIONS_URL, load_annotations)
 
-LOOMING_IDS_PATH = PATHWAYS / "looming_circuit_neurons.json"
+LOOMING_IDS_PATH = PATHWAYS / "EscapeNeuron" / "looming_circuit_neurons.json"
 DNG02_IDS_PATH = PATHWAYS / "StabilizerNeuron" / "dng02_circuit_neurons.json"
 OUT_PATH = HERE / "brain_atlas.npz"
 

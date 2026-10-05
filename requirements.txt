@@ -4,4 +4,4 @@ opencv-python
 torch         # BananaModel/ detector: main.py's USE_BANANA, Drone/fly_tello.py
 torchvision
 ultralytics
-djitellopy   # real-drone tests only (Drone/tello_*.py, Drone/Tests/tello_neuron_test.py)
+djitellopy   # real-drone tests only (Drone/tello_*.py, Drone/FlightTests/tello_neuron_test.py)

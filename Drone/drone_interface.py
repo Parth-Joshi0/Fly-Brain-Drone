@@ -5,7 +5,7 @@ to PyBullet, MAVLink, the Tello SDK, or anything else directly.
 
 To support a new drone later (real hardware, a different SDK), implement
 a new class against this same interface and swap it in main.py. Nothing
-in NeuralPathways/ or safety_layer.py/Simulator/reflex_controller.py needs to change.
+in NeuralPathways/ or safety_layer.py/Controllers/reflex_controller.py needs to change.
 """
 
 from abc import ABC, abstractmethod

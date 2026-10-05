@@ -12,8 +12,8 @@ Escape and DNg02 live in the same file pair (`connectome_worker.py` / `flybrain_
 | File | What it does |
 |---|---|
 | `connectome_worker.py` | The actual Brian2 connectome: builds the LIF network from real FlyWire v630 synapses, runs it as a persistent subprocess (`conda run -n brian2`), and speaks stdin/stdout JSON lines. Never imported directly by `main.py`. |
-| `flybrain_controller.py` | The adapter `main.py` actually imports (`FlyBrainController`). Same `decide(flow, state)` / `.state` / `.reset()` contract as `Simulator/reflex_controller.py`, backed by `connectome_worker.py` over a subprocess so the main venv never needs Brian2 installed. |
-| `looming_circuit_neurons.json` | The 274 neurons making up the LC4/LPLC2 → DNp01/DNp03/DNp06 escape circuit. |
+| `flybrain_controller.py` | The adapter `main.py` actually imports (`FlyBrainController`). Same `decide(flow, state)` / `.state` / `.reset()` contract as `Controllers/reflex_controller.py`, backed by `connectome_worker.py` over a subprocess so the main venv never needs Brian2 installed. |
+| `EscapeNeuron/looming_circuit_neurons.json` | The 274 neurons making up the LC4/LPLC2 → DNp01/DNp03/DNp06 escape circuit. |
 | `Data/` | The real FlyWire v630 connectome data both circuits are built from (rescued out of the upstream Fly-Brain clone, which is otherwise not vendored here — see the root README for credit). `2023_03_23_connectivity_630_final.parquet` and `...completeness_630_final.csv` are git-tracked; `flywire_neuron_annotations_630.tsv` is a gitignored 31 MB cache. |
 | `StabilizerNeuron/` | Everything DNg02-specific that's independent of the shared network: `dng02_circuit_neurons.json`, `build_dng02_circuit.py`, and its own `Tests/`. See its README. |
 

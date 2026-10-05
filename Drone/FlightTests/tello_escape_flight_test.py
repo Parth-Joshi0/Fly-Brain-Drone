@@ -12,7 +12,7 @@ in which case the dodge command is let through untouched. So the drone
 just sits there until something looms at it, dodges, then goes back to
 hovering.
 
-This is the flight step up from Drone/Tests/tello_neuron_test.py, which
+This is the flight step up from Drone/FlightTests/tello_neuron_test.py, which
 proved the perception half (DNp01 fires on a real swat, 5/5 hits, 0 false
 positives on a desk test - see that script's docstring) with the
 propellers OFF and nothing ever sent to the motors. This script is the
@@ -20,7 +20,7 @@ first time anything here actually commands the Tello to move. Two things
 that test could not check are still unverified and load-bearing:
 
   1. The RC speed/rate scale in Drone/tello_drone.py
-     (RC_SPEED_SCALE, _rate_to_rc's rate_at_100) is an ASSUMPTION, not a
+     (RC_SPEED_SCALE, rate_to_rc's rate_at_100) is an ASSUMPTION, not a
      measured constant.
   2. The escape dodge commands full-speed strafe + full-speed backward
      simultaneously (ESCAPE_STRAFE_SPEED = ESCAPE_BACK_SPEED = 2.0 m/s in
@@ -46,7 +46,7 @@ Run (needs djitellopy + opencv + numpy; the brain itself runs as a
 subprocess under whichever env has brian2, see
 NeuralPathways/flybrain_controller.py):
 
-    python Drone/Tests/tello_escape_flight_test.py [--seconds 15] [--fov 55.6] [--log PATH]
+    python Drone/FlightTests/tello_escape_flight_test.py [--seconds 15] [--fov 55.6] [--log PATH]
 """
 
 import argparse
@@ -61,119 +61,15 @@ import cv2
 import numpy as np
 
 from NeuralPathways.flybrain_controller import FlyBrainController
-from safety_layer import SafetyLayer
+from Controllers.safety_layer import SafetyLayer
 from Drone.tello_drone import TelloDrone
 from NeuralPathways.EscapeNeuron.optical_flow import LoomingDetector, compute_flow, derotate_flow, grid_flow_strengths
 
-# Deliberately NOT `import main` - main.py pulls in Simulator/
-# pybullet_simulator.py at module level, which imports pybullet. Per
-# Drone/README.md's Tests section, the "tello" env this script runs
-# under has djitellopy/opencv/numpy only, no pybullet. EMPTY_CMD and
-# apply_command are copied from main.py rather than imported.
-EMPTY_CMD = {"forward_speed": 0.0, "strafe_speed": 0.0, "yaw_rate": 0.0,
-             "altitude_delta": 0.0, "hover": False, "land": False, "reset": False,
-             "pressed_direction": "-"}
-
-
-def apply_command(drone, cmd):
-    if cmd["reset"]:
-        drone.reset()
-        drone.takeoff()
-        return True
-    if cmd["land"]:
-        drone.land()
-        return False
-    if drone.state != "flying":
-        return False
-    if cmd["hover"]:
-        drone.hover()
-    else:
-        drone.move_forward(cmd["forward_speed"])
-        if cmd["strafe_speed"] > 0:
-            drone.move_left(cmd["strafe_speed"])
-        elif cmd["strafe_speed"] < 0:
-            drone.move_right(-cmd["strafe_speed"])
-        else:
-            drone.move_left(0)
-        if cmd["yaw_rate"] > 0:
-            drone.turn_left(cmd["yaw_rate"])
-        elif cmd["yaw_rate"] < 0:
-            drone.turn_right(-cmd["yaw_rate"])
-        else:
-            drone.turn_left(0)
-    if cmd["altitude_delta"] > 0:
-        drone.move_up()
-    elif cmd["altitude_delta"] < 0:
-        drone.move_down()
-    else:
-        drone.relax_altitude()
-    return False
-
-# Same convention/derivation as Drone/Tests/tello_neuron_test.py: the Tello's
-# 82.6deg spec is diagonal; LoomingDetector's fov is vertical.
-DEFAULT_VERTICAL_FOV = 55.6
-PROC_WIDTH, PROC_HEIGHT = 320, 240
-
-STREAM_SETTLE_SECONDS = 3.0
-WARMUP_FRAMES = 15
-FIRST_FRAME_TIMEOUT = 20.0
-ARM_GRACE_SECONDS = 2.0  # post-takeoff settle before the brain's output is
-                          # trusted - the climb itself is a big, non-looming
-                          # expansion transient (main.py's equivalent is
-                          # HOVER_BEFORE_EXPLORE_CYCLES)
-EMERGENCY_HOVER_SECONDS = 1.0  # how long 'q'/SPACE hovers before landing
-
-PLACEHOLDER_SHAPE = (300, 400)
-
-
-def frame_not_ready(frame):
-    return frame is None or frame.shape[:2] == PLACEHOLDER_SHAPE or not frame.any()
-
-
-def open_tello(log):
-    from djitellopy import Tello
-
-    tello = Tello()
-    tello.connect(wait_for_state=False)
-    log("Connected (SDK mode). Waiting for state telemetry...")
-    deadline = time.perf_counter() + 10.0
-    while time.perf_counter() < deadline:
-        try:
-            if tello.get_current_state():
-                break
-        except Exception:
-            pass
-        time.sleep(0.1)
-    else:
-        log("WARNING: no state telemetry yet - continuing anyway.")
-
-    try:
-        battery = tello.get_battery()
-        log(f"Battery: {battery}%")
-        if battery < 20:
-            log(f"WARNING: battery is low ({battery}%).")
-    except Exception as exc:
-        log(f"Battery: unknown ({exc})")
-
-    tello.streamoff()
-    time.sleep(1)
-    tello.streamon()
-    log(f"Stream on - settling for {STREAM_SETTLE_SECONDS}s")
-    time.sleep(STREAM_SETTLE_SECONDS)
-    return tello
-
-
-def open_stream(tello, log):
-    frame_read = tello.get_frame_read()
-    deadline = time.perf_counter() + FIRST_FRAME_TIMEOUT
-    while time.perf_counter() < deadline:
-        frame = frame_read.frame
-        if not frame_not_ready(frame):
-            log(f"first real frame: {frame.shape[1]}x{frame.shape[0]}")
-            return frame_read
-        time.sleep(0.05)
-    log(f"ABORTED: no real frame within {FIRST_FRAME_TIMEOUT}s")
-    raise SystemExit(1)
+from Controllers.commands import EMPTY_CMD, apply_command
+from Drone.flight_harness import (ARM_GRACE_SECONDS, DEFAULT_VERTICAL_FOV, EMERGENCY_HOVER_SECONDS,
+                                  PROC_HEIGHT, PROC_WIDTH, WARMUP_FRAMES, frame_not_ready,
+                                  open_stream_for_flight as open_stream,
+                                  open_tello_for_flight as open_tello)
 
 
 def main():

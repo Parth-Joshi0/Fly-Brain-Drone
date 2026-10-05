@@ -45,11 +45,10 @@ Drone/tello_drone.py uses in the other direction.
 
 import time
 
-from Drone.tello_drone import RC_SPEED_SCALE
+from Drone.tello_drone import RC_SPEED_SCALE, RC_YAW_RATE_AT_100
 from NeuralPathways.FoodNeuron.feeding_behaviour import EAT_SIZE_RATIO, FeedingBehaviour
 
 TELLO_FRAME = (960, 720)
-YAW_RATE_AT_100_RC = 1.5    # rad/s - Drone/tello_drone._rate_to_rc's assumption
 
 # Run the detector (~30-50 ms) every Nth decision cycle, as fly_tello.py
 # does with the brain running (BANANA_EVERY_N_SCARED) - the banana barely
@@ -147,7 +146,7 @@ class BananaSeekController:
         cmd = {
             "forward_speed": rc.fb / RC_SPEED_SCALE * self._speed_scale(),
             "strafe_speed": -rc.lr / RC_SPEED_SCALE,              # +lr = right; +strafe = left
-            "yaw_rate": -rc.yaw / 100.0 * YAW_RATE_AT_100_RC,      # +yaw = clockwise; +yaw_rate = left
+            "yaw_rate": -rc.yaw / 100.0 * RC_YAW_RATE_AT_100,      # +yaw = clockwise; +yaw_rate = left
             "altitude_delta": float(rc.ud),
             "hover": False,
             "land": self.food.should_land,

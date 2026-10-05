@@ -31,7 +31,7 @@ The same Brian2 network also runs the 24-cell DNg02 flight-motor population (`St
 
 What keeps it from fighting the 360 scan and the turns toward the banana is an **efference copy**, as in a real fly: before DNg02 sees the optic flow, the image motion the behaviour's own yaw command should cause is subtracted (`EFFERENCE_PIXELS_PER_RADIAN` in `EscapeNeuron/fear_brain.py`). Only rotation nobody asked for is corrected. If that constant is off, deliberate turns come out a bit faster or slower (0.75-1.3x over the measured range), never reversed.
 
-Not flown yet in this form: the gain (`DNG02_TELLO_YAW_GAIN = 0.3`) is set to match the loop gain `Drone/Tests/tello_optomotor_flight_test.py` flew at `--yaw-gain 0.6`. And DNg02 makes each brain step slower (~22 ms vs ~13 ms measured on a MacBook Air), which costs pictures/s - `fly_tello.py` prints the loop rate and brain time at the end of every run and warns under 15/s.
+Not flown yet in this form: the gain (`DNG02_TELLO_YAW_GAIN = 0.3`) is set to match the loop gain `Drone/FlightTests/tello_optomotor_flight_test.py` flew at `--yaw-gain 0.6`. And DNg02 makes each brain step slower (~22 ms vs ~13 ms measured on a MacBook Air), which costs pictures/s - `fly_tello.py` prints the loop rate and brain time at the end of every run and warns under 15/s.
 
 ## Things the fly brain ignores, on purpose
 

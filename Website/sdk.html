@@ -119,7 +119,7 @@ print("Landed!")</code></pre>
     fb = _mps_to_rc(self.target_vx)
     ud = 0  <span class="c"># altitude changes not used by the hover/escape flight test; Tello holds altitude on its own</span>
     <span class="c"># ... Tello's yaw_velocity is the opposite sign (+100 = cw/right), so flip it.</span>
-    yaw = _rate_to_rc(-self.target_yaw_rate)
+    yaw = rate_to_rc(-self.target_yaw_rate)
     self._tello.send_rc_control(lr, fb, ud, yaw)</code></pre>
     </div>
     <div class="note">

@@ -36,7 +36,8 @@ if not GUI:
 
 import NeuralPathways.flybrain_controller as fbc
 import main as M
-from safety_layer import SafetyLayer
+from Controllers.commands import EMPTY_CMD, apply_command
+from Controllers.safety_layer import SafetyLayer
 from Simulator.pybullet_simulator import PyBulletSimulator
 from NeuralPathways.EscapeNeuron.optical_flow import LoomingDetector, compute_flow, derotate_flow, grid_flow_strengths
 
@@ -104,13 +105,13 @@ while start_cycle is None or cycle < start_cycle + RUN_CYCLES:
         if exploring:
             raw_cmd = brain.decide(flow, s)
             if TEST_MODE and brain.state != "ESCAPE":
-                raw_cmd = dict(M.EMPTY_CMD)
+                raw_cmd = dict(EMPTY_CMD)
                 raw_cmd["hover"] = True
             avoiding = brain.state in ("AVOID_LEFT", "AVOID_RIGHT", "BOUNDARY_RETURN", "ESCAPE")
             final, sinfo = safety.apply(raw_cmd, flow, s["position"], avoiding)
         else:
-            final, sinfo = dict(M.EMPTY_CMD), {"level": "CLEAR"}
-        M.apply_command(drone, final)
+            final, sinfo = dict(EMPTY_CMD), {"level": "CLEAR"}
+        apply_command(drone, final)
 
         if start_cycle is None and flying == M.HOVER_BEFORE_EXPLORE_CYCLES + 10:
             start_cycle, start_pos = cycle, s["position"]

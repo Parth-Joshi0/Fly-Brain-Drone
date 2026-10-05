@@ -10,7 +10,7 @@ Use it to re-tune LOOM_EXPANSION_* in NeuralPathways/flybrain_controller.py
 after changing the camera, the detector, or the drone's dynamics.
 
 Run under an env with pybullet + opencv:
-    python NeuralPathways/EscapeNeuron/Tests/calibrate_looming.py [scenario ...]
+    python NeuralPathways/EscapeNeuron/Tools/calibrate_looming.py [scenario ...]
 """
 import math
 import subprocess

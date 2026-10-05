@@ -29,7 +29,7 @@ Keys (video window focused):
     l         land immediately
     q / SPACE hover, then land shortly after
 
-    python Drone/Tests/tello_optomotor_flight_test.py [--seconds 20] [--dry-run] [--yaw-gain G] [--log PATH]
+    python Drone/FlightTests/tello_optomotor_flight_test.py [--seconds 20] [--dry-run] [--yaw-gain G] [--log PATH]
 """
 
 import argparse
@@ -48,10 +48,11 @@ import numpy as np
 from NeuralPathways.flybrain_controller import (DNG02_YAW_AUTHORITY, DNG02_YAW_GAIN,
                                              FlyBrainController)
 from Drone.tello_drone import TelloDrone
-from Drone.Tests.tello_escape_flight_test import (ARM_GRACE_SECONDS, DEFAULT_VERTICAL_FOV,
-                                              EMERGENCY_HOVER_SECONDS, EMPTY_CMD, PROC_HEIGHT,
-                                              PROC_WIDTH, apply_command, frame_not_ready,
-                                              open_stream, open_tello)
+from Controllers.commands import EMPTY_CMD, apply_command
+from Drone.flight_harness import (ARM_GRACE_SECONDS, DEFAULT_VERTICAL_FOV, EMERGENCY_HOVER_SECONDS,
+                                  PROC_HEIGHT, PROC_WIDTH, frame_not_ready,
+                                  open_stream_for_flight as open_stream,
+                                  open_tello_for_flight as open_tello)
 from NeuralPathways.EscapeNeuron.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
                                  grid_flow_strengths, signed_hemifield_flow)
 

@@ -47,7 +47,7 @@ def derotate_flow(flow, yaw_rate, dt, pixels_per_radian=_PIXELS_PER_RADIAN):
     simple constant in testing here). That residual variance means any
     sustained yaw rate produces some baseline elevated flow reading even
     with nothing nearby - see AVOID_TURN_RATE and BOUNDARY_TURN_RATE in
-    Simulator/reflex_controller.py, which are kept moderate partly for this reason,
+    Controllers/reflex_controller.py, which are kept moderate partly for this reason,
     and safety_layer.py's already_avoiding flag, which stops
     that residual from triggering a second, conflicting turn decision on
     top of a turn already in progress.
@@ -62,7 +62,7 @@ def derotate_flow(flow, yaw_rate, dt, pixels_per_radian=_PIXELS_PER_RADIAN):
     leaves part of the drone's own commanded yaw in the signal with the same
     sign as a genuine drift, which is positive feedback in any loop built on
     it. So: calibrate it against real telemetry before closing a loop on this
-    (Drone/Tests/tello_dng02_test.py --mode calibrate-derotation does that), and
+    (Drone/FlightTests/tello_dng02_test.py --mode calibrate-derotation does that), and
     leave it alone otherwise.
     """
     corrected = flow.copy()

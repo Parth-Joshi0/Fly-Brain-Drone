@@ -4,7 +4,7 @@ long the drone physically needs to get out of the way (e.g. for the
 Giant Fiber dodge).
 
 Run under an env with pybullet + opencv:
-    python Simulator/Tests/drone_step_response.py strafe|forward [CONST=value ...]
+    python Simulator/Tools/drone_step_response.py strafe|forward [CONST=value ...]
 Optional CONST=value overrides Simulator/pybullet_drone.py constants,
 e.g. TILT_KP=0.2 TILT_KD=0.04.
 """

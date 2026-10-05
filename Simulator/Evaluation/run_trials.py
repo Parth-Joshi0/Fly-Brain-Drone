@@ -16,11 +16,12 @@ import pybullet_data
 
 from Simulator.environment import build_environment
 from Simulator.pybullet_drone import PyBulletDrone, PHYSICS_DT, GRAVITY
-from Simulator.reflex_controller import ReflexController
-from safety_layer import SafetyLayer
+from Controllers.reflex_controller import ReflexController
+from Controllers.safety_layer import SafetyLayer
 from NeuralPathways.EscapeNeuron.optical_flow import compute_flow, derotate_flow, grid_flow_strengths
 from Simulator.Evaluation.metrics import TrialMetrics, print_summary
-from main import apply_command, HOVER_BEFORE_EXPLORE_CYCLES, EMPTY_CMD, _AVOIDING_STATES
+from main import HOVER_BEFORE_EXPLORE_CYCLES
+from Controllers.commands import AVOIDING_STATES, EMPTY_CMD, apply_command
 
 DECISION_INTERVAL_STEPS = 8  # 240Hz physics / 8 = 30Hz decision loop
 MAX_TRIAL_SECONDS = 25
@@ -75,7 +76,7 @@ def run_trial():
                 exploring = flying_cycle_count > HOVER_BEFORE_EXPLORE_CYCLES
                 if exploring:
                     raw_cmd = controller.decide(flow, state_now)
-                    already_avoiding = controller.state in _AVOIDING_STATES
+                    already_avoiding = controller.state in AVOIDING_STATES
                     cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
                 else:
                     cmd = dict(EMPTY_CMD)

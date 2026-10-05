@@ -35,8 +35,9 @@ if not GUI:
     p.connect = lambda *_a, **_k: _real_connect(p.DIRECT)
 
 import main as M
+from Controllers.commands import EMPTY_CMD, apply_command
 from BananaModel.banana_detector import BananaDetector
-from Simulator.banana_seek_controller import BananaSeekController
+from Controllers.banana_seek_controller import BananaSeekController
 from Simulator.pybullet_simulator import PyBulletSimulator
 from NeuralPathways.EscapeNeuron.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
                                                       grid_flow_strengths, signed_hemifield_flow)
@@ -101,8 +102,8 @@ while clock() < MAX_SIM_S:
             if brain is not None:
                 dng02_yaw_max = max(dng02_yaw_max, abs(brain.dng02_yaw_rate()))
         else:
-            final = dict(M.EMPTY_CMD)
-        M.apply_command(drone, final)
+            final = dict(EMPTY_CMD)
+        apply_command(drone, final)
 
         state = ctl.state
         if state != prev_state:

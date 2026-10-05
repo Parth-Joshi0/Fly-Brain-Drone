@@ -27,7 +27,7 @@ import numpy as np  # noqa: E402
 
 from NeuralPathways.BrainView import brain_diagram as bd  # noqa: E402
 
-with open(ROOT / "NeuralPathways" / "looming_circuit_neurons.json") as f:
+with open(ROOT / "NeuralPathways" / "EscapeNeuron" / "looming_circuit_neurons.json") as f:
     LOOMING = json.load(f)
 # connectome_worker.py's local order: inputs left then right, then the DNs.
 CELLS = sorted(LOOMING["input_neurons"], key=lambda n: n["side"]) + LOOMING["output_neurons"]
