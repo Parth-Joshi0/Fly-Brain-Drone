@@ -46,7 +46,7 @@ Drone/tello_drone.py uses in the other direction.
 import time
 
 from Drone.tello_drone import RC_SPEED_SCALE
-from NeuralPathways.FoodNeuron.food_orbit import FoodOrbitBehaviour
+from NeuralPathways.FoodNeuron.food_orbit import EAT_SIZE_RATIO, FoodOrbitBehaviour
 
 TELLO_FRAME = (960, 720)
 YAW_RATE_AT_100_RC = 1.5    # rad/s - Drone/tello_drone._rate_to_rc's assumption
@@ -55,6 +55,26 @@ YAW_RATE_AT_100_RC = 1.5    # rad/s - Drone/tello_drone._rate_to_rc's assumption
 # does with the brain running (BANANA_EVERY_N_SCARED) - the banana barely
 # moves between frames, and the looming detector needs the frame rate more.
 DETECT_EVERY_N = 3
+
+# food_orbit's forward/back speeds are the Tello's (approach tops out at
+# 15 rc = 0.25 m/s), slowed for a real room. The sim flies them this many
+# times faster. Forward/back only: the scan's 45 deg turns count heading
+# from the yaw commands (food_orbit.DEG_PER_RC_S), and DONE's sideways
+# slide is already enough to fire the Giant Fiber.
+FORWARD_SPEED_SCALE = 2.5
+# ...fading back to the Tello's own speed as the banana grows from this
+# fraction of the size food_orbit is flying in to eat at, to that size.
+# At the full speed-up its 10 rc minimum is still ~0.4 m/s, and coming
+# back after a scare (aiming for the bigger pre-scare size) it coasted to
+# ~0.75 m from the card and the Giant Fiber fired on arrival.
+FAST_UNTIL_SIZE_FRACTION = 0.5
+
+# Added to the brain's loom floor while flying to the banana and eating it.
+# The card growing in view, and the pitch as the drone brakes in front of
+# it, read up to ~1.0 over the floor and fired the Giant Fiber on most
+# arrivals. The thrown test box goes 2-19 over, so it still gets through
+# (~0.1 s later).
+APPROACH_LOOM_FLOOR_OFFSET = 0.8
 
 
 class BananaSeekController:
@@ -99,6 +119,9 @@ class BananaSeekController:
         self._frames += 1
 
     def decide(self, flow, state=None):
+        if self.brain is not None:
+            closing_in = self.food.state in ("APPROACH", "FEED")
+            self.brain.loom_floor_offset = APPROACH_LOOM_FLOOR_OFFSET if closing_in else 0.0
         brain_cmd = self.brain.decide(flow, state) if self.brain is not None else None
         escaping = self.brain is not None and self.brain.state == "ESCAPE"
         if escaping and not self._escaping:
@@ -122,7 +145,7 @@ class BananaSeekController:
 
         self.state = self.food.state
         cmd = {
-            "forward_speed": rc.fb / RC_SPEED_SCALE,
+            "forward_speed": rc.fb / RC_SPEED_SCALE * self._speed_scale(),
             "strafe_speed": -rc.lr / RC_SPEED_SCALE,              # +lr = right; +strafe = left
             "yaw_rate": -rc.yaw / 100.0 * YAW_RATE_AT_100_RC,      # +yaw = clockwise; +yaw_rate = left
             "altitude_delta": float(rc.ud),
@@ -137,6 +160,13 @@ class BananaSeekController:
             # cruising image speed, and this behaviour mostly hovers.
             cmd["yaw_rate"] += self.brain.dng02_yaw_rate()
         return cmd
+
+    def _speed_scale(self):
+        """FORWARD_SPEED_SCALE far from the banana, 1.0 at eating size."""
+        goal = max(EAT_SIZE_RATIO, self.food.size_before_scare)
+        start = goal * FAST_UNTIL_SIZE_FRACTION
+        closeness = (self.food.last_box_ratio - start) / (goal - start)
+        return FORWARD_SPEED_SCALE - (FORWARD_SPEED_SCALE - 1.0) * min(1.0, max(0.0, closeness))
 
 
 class _ScaledDetection:

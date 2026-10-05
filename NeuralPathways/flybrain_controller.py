@@ -296,6 +296,10 @@ class FlyBrainController:
         self._last_tie_dir = -1
         self._prev_tilt = None
         self._rotation_floor = 0.0
+        # Extra loom floor a caller sets while it is deliberately closing on
+        # something (Simulator/banana_seek_controller.py, flying to and
+        # eating the banana): that target growing in view isn't a threat.
+        self.loom_floor_offset = 0.0
         self.dng02 = {"n_left": 0, "n_right": 0, "thrust": 0.0, "steer": 0.0, "counts": {}}
         self.escape_level = 0.0
         self._brain = _FlyBrainProcess(with_dng02=optomotor)
@@ -483,7 +487,7 @@ class FlyBrainController:
     def _loom_floor(self, state):
         """Expansion expected from the drone's own motion, which isn't looming."""
         if state is None:
-            return LOOM_EXPANSION_FLOOR
+            return LOOM_EXPANSION_FLOOR + self.loom_floor_offset
         pitch, roll = _pitch_roll(state["orientation"])
         yaw = math.radians(state["yaw_degrees"])
         rotation = 0.0
@@ -499,7 +503,8 @@ class FlyBrainController:
         forward_speed = max(0.0, state["actual_vx"])
         return (LOOM_EXPANSION_FLOOR
                 + LOOM_EXPANSION_FLOOR_PER_MPS * forward_speed
-                + self._rotation_floor)
+                + self._rotation_floor
+                + self.loom_floor_offset)
 
     @staticmethod
     def _loom(expansion, floor):

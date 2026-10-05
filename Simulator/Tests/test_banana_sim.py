@@ -135,6 +135,8 @@ while clock() < MAX_SIM_S:
                   f"cmd fwd={final['forward_speed']:+.2f} strafe={final['strafe_speed']:+.2f} "
                   f"yaw={final['yaw_rate']:+.2f} up={final['altitude_delta']:+.0f} "
                   f"pos=({s['position'][0]:+.2f},{s['position'][1]:+.2f}) alt={s['altitude']:.2f} "
+                  f"vx={s['actual_vx']:+.2f} exp=L{flow['expansion_left']:.2f}/C{flow['expansion_center']:.2f}"
+                  f"/R{flow['expansion_right']:.2f} "
                   f"escape={brain.escape_level if brain else 0:.2f} {s['flight_state']}", flush=True)
         prev_state = state
         cycle += 1
