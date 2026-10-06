@@ -19,13 +19,14 @@ dataset
 
 # Runtime logs
 flybrain_spikes.log
-Drone/flight_logs/tello_neuron_test.log
+
+# Flight logs stay on your own computer - only the empty folder
+# (its .gitkeep) is uploaded
+Drone/flight_logs/*
+!Drone/flight_logs/.gitkeep
 
 # 31 MB FlyWire annotations cache, re-downloaded by build_dng02_circuit.py
 NeuralPathways/Data/flywire_neuron_annotations_630.tsv
 
 .claude
 CLAUDE.md
-
-# Banana flight diaries (Drone/fly_tello.py) - kept locally, not uploaded
-Drone/flight_logs/flight_*.csv
