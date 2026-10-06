@@ -1,7 +1,8 @@
 """
 Real-time surrogate for the upstream Fly-Brain connectome model (model.py in
-the original FlyWire Fly-Brain project, credited in the repo README; not
-vendored here beyond the two data files under NeuralPathways/Data/),
+Shiu et al.'s github.com/philshiu/Drosophila_brain_model, credited in the
+repo README; not vendored here beyond the two data files under
+NeuralPathways/Data/),
 scoped down to real circuits instead of the whole ~130k-neuron brain. Two of
 them now share one network:
 

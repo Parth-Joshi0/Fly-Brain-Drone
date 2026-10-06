@@ -122,5 +122,28 @@ The escape and flight-motor circuits are built from real
 [FlyWire](https://flywire.ai/) v630 connectome data (`NeuralPathways/Data/`)
 — synapse-level connectivity and neuron annotations for an actual fly
 brain, reconstructed by the FlyWire community. The connectome files here
-were rescued out of an earlier, unvendored "Fly-Brain" clone this project
-grew out of.
+were rescued out of an earlier, unvendored clone of
+[philshiu/Drosophila_brain_model](https://github.com/philshiu/Drosophila_brain_model)
+(MIT, © 2023 Philip Shiu and Nico Spiller) — the official code for Shiu et
+al. below — which this project grew out of. The real-time Brian2 worker
+(`NeuralPathways/connectome_worker.py`) reuses that model's LIF constants
+and Poisson-drive scheme from its `model.py`, scoped down from the whole
+brain to the escape and flight-motor circuits.
+
+## References
+
+- **Shiu, P. K., Sterne, G. R., Spiller, N., et al.** (2023). *A leaky
+  integrate-and-fire computational model based on the connectome of the
+  entire adult Drosophila brain reveals insights into sensorimotor
+  processing.* bioRxiv.
+  [doi:10.1101/2023.05.02.539144](https://www.biorxiv.org/content/10.1101/2023.05.02.539144v1)
+  — the whole-brain LIF connectome model this project's Brian2 controller
+  is based on. Later published as *A Drosophila computational brain model
+  reveals sensorimotor processing*, Nature 634, 210–219 (2024).
+- **[philshiu/Drosophila_brain_model](https://github.com/philshiu/Drosophila_brain_model)**
+  — the code accompanying Shiu et al.; the origin of the connectome data
+  files and the LIF model the Brian2 subprocess is adapted from.
+- **[blendi-remade/fly-brain-minecraft](https://github.com/blendi-remade/fly-brain-minecraft)**
+  — a Minecraft mod that runs a simulated fly nervous system inside a mob.
+  The original inspiration for putting a fly brain in control of something,
+  and an occasional reference while building this.
