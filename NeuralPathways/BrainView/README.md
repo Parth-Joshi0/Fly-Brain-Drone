@@ -13,6 +13,8 @@ python NeuralPathways/BrainView/show_brain.py Drone/fly_tello.py   # any other s
 
 Everything after the script path goes to that script untouched. `--fps N` (before the script path) caps repaints; the default is 10. Spikes are recorded every brain step regardless.
 
+`Drone/fly_tello.py` also has it built in: `python Drone/fly_tello.py --fly --scared --show-brain` (needs `--scared` and/or `--stabilize`, since those are what start the fly brain).
+
 From your own code:
 
 ```python

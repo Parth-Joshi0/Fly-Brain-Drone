@@ -22,6 +22,10 @@ steady in every state, on top of the eating behaviour's own turns -
 works with or without --scared, see fear_brain.py):
     python Drone/fly_tello.py --fly --scared --stabilize
 
+Live fly-brain diagram next to the video (NeuralPathways/BrainView -
+needs --scared and/or --stabilize, otherwise no fly brain runs):
+    python Drone/fly_tello.py --fly --scared --show-brain
+
 Keys:
     q = land and quit
     h = mark "I'm waving my hand NOW" in the flight log (for tuning --scared)
@@ -132,7 +136,25 @@ def parse_args():
              "stabilizer in every state (with or without --scared)"
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--show-brain",
+        action="store_true",
+        help="open the live fly-brain diagram (NeuralPathways/BrainView) "
+             "next to the video - needs --scared and/or --stabilize"
+    )
+
+    args = parser.parse_args()
+
+    # Checked before loading anything / connecting, so a wrong flag
+    # doesn't cost a battery
+    if args.show_brain and not (args.scared or args.stabilize):
+
+        parser.error(
+            "--show-brain needs --scared and/or --stabilize "
+            "(without them no fly brain runs)"
+        )
+
+    return args
 
 
 def load_detectors():
@@ -362,6 +384,13 @@ def main():
         behaviour = brain.behaviour
 
         fear = brain.fear
+
+        # Live brain diagram: repaints on this loop's own cv2.waitKey(1)
+        if args.show_brain:
+
+            from NeuralPathways.BrainView.brain_diagram import attach
+
+            attach(fear.brain)
 
         print("Brain ready")
 
