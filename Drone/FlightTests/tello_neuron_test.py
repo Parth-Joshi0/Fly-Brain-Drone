@@ -52,13 +52,11 @@ needing anything else from the session.
 """
 
 import argparse
-import math
 import os
 import platform
 import statistics
 import sys
 import time
-from collections import deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -71,10 +69,11 @@ import NeuralPathways.flybrain_controller as fbc
 from NeuralPathways.flybrain_controller import FlyBrainController
 from NeuralPathways.EscapeNeuron.optical_flow import (LoomingDetector, compute_flow, derotate_flow,
                                  grid_flow_strengths)
-from Drone.tello_drone import TELLO_YAW_SIGN
 from Drone.flight_harness import (DEFAULT_VERTICAL_FOV, PROC_HEIGHT, PROC_WIDTH, TELLO_DIAGONAL_FOV,
-                                  WARMUP_FRAMES, TelloLogger, euler_deg_to_quat, frame_not_ready,
-                                  git_commit, open_stream, open_tello, percentile, read_attitude)
+                                  WARMUP_FRAMES, TelloLogger, YawTracker, capture_brain_requests,
+                                  frame_not_ready, git_commit, open_stream, open_tello, percentile,
+                                  read_attitude)
+
 
 class Logger(TelloLogger):
     COLUMNS = [
@@ -123,6 +122,99 @@ def write_header(log, args):
     log.meta("FLYBRAIN_PYTHON", os.environ.get("FLYBRAIN_PYTHON", "(unset)"))
 
 
+class Run:
+    """Everything accumulated over a run, for the summary at the end."""
+
+    def __init__(self):
+        self.accepted = 0
+        self.duplicates = 0
+        self.att_missing = 0
+        self.marks = []
+        self.stats = {"exp_c": [], "loom": [], "escape": [], "hz": [],
+                      "ms_cycle": [], "ms_brain": [], "ms_flow": []}
+        self.baseline_exp = []
+        self.escape_events = []
+        self.state_counts = {}
+
+    def note_state(self, state, t_abs):
+        self.state_counts[state] = self.state_counts.get(state, 0) + 1
+        if state == "ESCAPE" and (not self.escape_events or self.escape_events[-1][1] != "run"):
+            self.escape_events.append((round(t_abs, 2), "run"))
+        elif state != "ESCAPE" and self.escape_events and self.escape_events[-1][1] == "run":
+            self.escape_events[-1] = (self.escape_events[-1][0], "done")
+
+
+def draw_hud(small, phase, t_abs, hz, run, expansion, floor, loom_l, loom_r, escape, state, spikes):
+    view = small.copy()
+    fired = state == "ESCAPE"
+    color = (0, 0, 255) if fired else (0, 255, 0)
+    lines = [
+        f"{phase.upper()}  {t_abs:5.1f}s  {hz:4.1f}Hz  dup={run.duplicates}",
+        f"EXP L={expansion['left']:.2f} C={expansion['center']:.2f} R={expansion['right']:.2f}",
+        f"floor={floor:.2f}  loom L={loom_l:.2f} R={loom_r:.2f}",
+        f"escape={escape:.2f}  state={state}",
+        f"spikes: {spikes}",
+        f"marks={len(run.marks)}   SPACE=swat  Q=quit",
+    ]
+    for i, line in enumerate(lines):
+        cv2.putText(view, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.42, color, 1, cv2.LINE_AA)
+    if fired:
+        cv2.putText(view, "DNp01 ESCAPE", (60, PROC_HEIGHT - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
+    cv2.imshow("Tello neuron test", view)
+
+
+def write_summary(log, run):
+    """Everything needed to judge the run without the raw rows."""
+    stats = run.stats
+    log.raw("=" * 70)
+    log.raw("SUMMARY")
+    log.raw(f"accepted_frames: {run.accepted}   duplicate_frames_skipped: {run.duplicates}")
+    log.raw(f"cycles_without_attitude: {run.att_missing}"
+            + ("  (orientation was identity on those - the loom floor's "
+               "rotation term could not be measured)" if run.att_missing else ""))
+    if stats["hz"]:
+        log.raw(f"effective_fps  mean={statistics.fmean(stats['hz']):.1f} "
+                f"median={percentile(stats['hz'], 50):.1f} "
+                f"p5={percentile(stats['hz'], 5):.1f}")
+        log.raw(f"cycle_ms       mean={statistics.fmean(stats['ms_cycle']):.1f} "
+                f"p95={percentile(stats['ms_cycle'], 95):.1f}")
+        log.raw(f"flow_ms        mean={statistics.fmean(stats['ms_flow']):.1f} "
+                f"p95={percentile(stats['ms_flow'], 95):.1f}")
+        brain_mean = statistics.fmean(stats["ms_brain"])
+        log.raw(f"brain_ms       mean={brain_mean:.1f} "
+                f"p95={percentile(stats['ms_brain'], 95):.1f}")
+        # 33ms is the 30Hz decision-loop budget NeuralPathways/README.md
+        # holds the circuit to. Over it usually means the brain is running
+        # under a slower brian2 install than intended - see
+        # brain_interpreter in the header above.
+        if brain_mean > 33.0:
+            log.raw(f"WARNING: brain_ms mean {brain_mean:.1f} exceeds the 33ms "
+                    f"30Hz budget. Check 'brain_interpreter' in the header - "
+                    f"pin the fast env with FLYBRAIN_PYTHON and re-run.")
+            print(f"\nWARNING: brain step averaged {brain_mean:.1f}ms (budget 33ms) - "
+                  f"the brain may be running under the wrong brian2 install.",
+                  flush=True)
+    if run.baseline_exp:
+        log.raw(f"baseline_expansion (quiet, max over columns) "
+                f"mean={statistics.fmean(run.baseline_exp):.3f} "
+                f"p95={percentile(run.baseline_exp, 95):.3f} "
+                f"max={max(run.baseline_exp):.3f}")
+        log.raw(f"  -> compare against LOOM_EXPANSION_FLOOR="
+                f"{fbc.LOOM_EXPANSION_FLOOR}: the floor must sit above this "
+                f"noise or the circuit fires at nothing")
+    if stats["exp_c"]:
+        log.raw(f"peak_expansion_center={max(stats['exp_c']):.3f}  "
+                f"peak_loom={max(stats['loom']):.3f}  "
+                f"peak_escape={max(stats['escape']):.3f}  "
+                f"(ESCAPE_STATE_THRESHOLD={fbc.ESCAPE_STATE_THRESHOLD})")
+    log.raw(f"state_cycle_counts: {run.state_counts}")
+    log.raw(f"swat_marks ({len(run.marks)}): {run.marks}")
+    log.raw(f"escape_triggers ({len(run.escape_events)}): {[t for t, _ in run.escape_events]}")
+    log.raw("END")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -151,34 +243,12 @@ def main():
     controller = FlyBrainController(bounds=None)
     print("brain ready", flush=True)
 
-    # Capture yaw/forward/escape/spike_counts for EVERY cycle, not just the
-    # ones FlyBrainController's own _log_spikes writes (it only fires when a
-    # DN actually spiked, and it does not return the values to the caller).
-    # Wrapping the subprocess request is the one place both the input and
-    # the full output are visible.
-    last = {}
-    inner_request = controller._brain.request
-
-    def capturing_request(payload):
-        result = inner_request(payload)
-        last.clear()
-        last.update(payload=payload, result=result)
-        return result
-
-    controller._brain.request = capturing_request
+    last = capture_brain_requests(controller)
+    yaw_tracker = YawTracker()
+    run = Run()
 
     prev_gray = None          # for grid flow (magnitude)
     prev_accepted = None      # raw gray of the last ACCEPTED frame, for dup detection
-    prev_yaw = None
-    accepted = 0
-    duplicates = 0
-    att_missing = 0
-    marks = []
-    stats = {"exp_c": [], "loom": [], "escape": [], "hz": [],
-             "ms_cycle": [], "ms_brain": [], "ms_flow": []}
-    baseline_exp = []
-    escape_events = []
-    state_counts = {}
 
     # Two clocks on purpose: t_abs (never reset) is what every logged
     # timestamp, swat marker and escape trigger uses, so the log has one
@@ -214,7 +284,7 @@ def main():
             # artifact. Skip duplicates and count them, so the log can tell
             # those two situations apart.
             if prev_accepted is not None and np.array_equal(gray, prev_accepted):
-                duplicates += 1
+                run.duplicates += 1
                 if not args.no_video:
                     if (cv2.waitKey(1) & 0xFF) == ord("q"):
                         break
@@ -222,7 +292,7 @@ def main():
                     time.sleep(0.002)
                 continue
             prev_accepted = gray
-            accepted += 1
+            run.accepted += 1
 
             now = time.perf_counter()
             # dt between frames actually fed to the detector - NOT the
@@ -234,21 +304,7 @@ def main():
             dt = max(dt, 1e-3)
 
             att = read_attitude(tello)
-            # The Tello reports yaw clockwise-positive; this project is
-            # counter-clockwise-positive. Convert once, here, exactly as
-            # Drone/tello_drone.py's get_state() does - these scripts read
-            # the attitude themselves rather than going through it, so the
-            # conversion has to be applied in both places or the perception
-            # tests and the flight path disagree about which way a turn went.
-            yaw_deg = TELLO_YAW_SIGN * att["yaw"]
-            quat = euler_deg_to_quat(att["roll"], att["pitch"], yaw_deg)
-            yaw_rad = math.radians(yaw_deg)
-            if prev_yaw is None:
-                yaw_rate = 0.0
-            else:
-                d_yaw = (yaw_rad - prev_yaw + math.pi) % (2 * math.pi) - math.pi
-                yaw_rate = d_yaw / dt
-            prev_yaw = yaw_rad
+            yaw_deg, quat, yaw_rate = yaw_tracker.update(att, dt)
 
             flow_start = time.perf_counter()
             expansion = looming.update(gray, quat, dt)
@@ -261,7 +317,7 @@ def main():
             ms_flow = (time.perf_counter() - flow_start) * 1000
 
             if phase == "warmup":
-                if accepted >= WARMUP_FRAMES:
+                if run.accepted >= WARMUP_FRAMES:
                     # Drop the EMA/median history built from the settling
                     # exposure so the baseline phase starts clean.
                     looming.reset()
@@ -269,7 +325,7 @@ def main():
                     phase = "baseline"
                     phase_t0 = time.perf_counter()
                     log.raw(f"PHASE baseline starts t={t_abs:.2f} "
-                            f"(warmup discarded {accepted} frames)")
+                            f"(warmup discarded {run.accepted} frames)")
                     print(f"--- BASELINE: hold still, {args.baseline:.0f}s of nothing ---", flush=True)
                 continue
             if phase == "baseline" and phase_elapsed >= args.baseline:
@@ -314,14 +370,10 @@ def main():
             ms_cycle = (time.perf_counter() - cycle_start) * 1000
             hz = 1.0 / dt
 
-            state_counts[controller.state] = state_counts.get(controller.state, 0) + 1
-            if controller.state == "ESCAPE" and (not escape_events or escape_events[-1][1] != "run"):
-                escape_events.append((round(t_abs, 2), "run"))
-            elif controller.state != "ESCAPE" and escape_events and escape_events[-1][1] == "run":
-                escape_events[-1] = (escape_events[-1][0], "done")
+            run.note_state(controller.state, t_abs)
 
             log.row([
-                f"{t_abs:.3f}", phase, f"{dt * 1000:.1f}", duplicates,
+                f"{t_abs:.3f}", phase, f"{dt * 1000:.1f}", run.duplicates,
                 f"{expansion['left']:.3f}", f"{expansion['center']:.3f}", f"{expansion['right']:.3f}",
                 f"{floor:.3f}", f"{loom_l:.3f}", f"{loom_r:.3f}",
                 f"{escape:.3f}", f"{result.get('yaw', 0.0):.3f}", f"{result.get('forward', 0.0):.3f}",
@@ -333,94 +385,34 @@ def main():
                 f"{ms_grab:.1f}", f"{ms_flow:.1f}", f"{ms_brain:.1f}", f"{ms_cycle:.1f}",
             ])
 
+            stats = run.stats
             stats["exp_c"].append(expansion["center"])
             stats["loom"].append(max(loom_l, loom_r))
             stats["escape"].append(escape)
             if not att["ok"]:
-                att_missing += 1
+                run.att_missing += 1
             stats["hz"].append(hz)
             stats["ms_cycle"].append(ms_cycle)
             stats["ms_brain"].append(ms_brain)
             stats["ms_flow"].append(ms_flow)
             if phase == "baseline":
-                baseline_exp.append(max(expansion.values()))
+                run.baseline_exp.append(max(expansion.values()))
 
             if not args.no_video:
-                view = small.copy()
-                fired = controller.state == "ESCAPE"
-                color = (0, 0, 255) if fired else (0, 255, 0)
-                lines = [
-                    f"{phase.upper()}  {t_abs:5.1f}s  {hz:4.1f}Hz  dup={duplicates}",
-                    f"EXP L={expansion['left']:.2f} C={expansion['center']:.2f} R={expansion['right']:.2f}",
-                    f"floor={floor:.2f}  loom L={loom_l:.2f} R={loom_r:.2f}",
-                    f"escape={escape:.2f}  state={controller.state}",
-                    f"spikes: {spikes}",
-                    f"marks={len(marks)}   SPACE=swat  Q=quit",
-                ]
-                for i, line in enumerate(lines):
-                    cv2.putText(view, line, (6, 16 + i * 16), cv2.FONT_HERSHEY_SIMPLEX,
-                                0.42, color, 1, cv2.LINE_AA)
-                if fired:
-                    cv2.putText(view, "DNp01 ESCAPE", (60, PROC_HEIGHT - 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
-                cv2.imshow("Tello neuron test", view)
+                draw_hud(small, phase, t_abs, hz, run, expansion, floor, loom_l, loom_r,
+                         escape, controller.state, spikes)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
                     break
                 if key == ord(" "):
-                    marks.append(round(t_abs, 2))
+                    run.marks.append(round(t_abs, 2))
                     log.raw(f"MARK swat t={t_abs:.2f} phase={phase}")
                     print(f"  [swat marked at {t_abs:.2f}s]", flush=True)
 
     except KeyboardInterrupt:
         print("\ninterrupted", flush=True)
     finally:
-        # --- summary: everything needed to judge the run without the raw rows
-        log.raw("=" * 70)
-        log.raw("SUMMARY")
-        log.raw(f"accepted_frames: {accepted}   duplicate_frames_skipped: {duplicates}")
-        log.raw(f"cycles_without_attitude: {att_missing}"
-                + ("  (orientation was identity on those - the loom floor's "
-                   "rotation term could not be measured)" if att_missing else ""))
-        if stats["hz"]:
-            log.raw(f"effective_fps  mean={statistics.fmean(stats['hz']):.1f} "
-                    f"median={percentile(stats['hz'], 50):.1f} "
-                    f"p5={percentile(stats['hz'], 5):.1f}")
-            log.raw(f"cycle_ms       mean={statistics.fmean(stats['ms_cycle']):.1f} "
-                    f"p95={percentile(stats['ms_cycle'], 95):.1f}")
-            log.raw(f"flow_ms        mean={statistics.fmean(stats['ms_flow']):.1f} "
-                    f"p95={percentile(stats['ms_flow'], 95):.1f}")
-            brain_mean = statistics.fmean(stats["ms_brain"])
-            log.raw(f"brain_ms       mean={brain_mean:.1f} "
-                    f"p95={percentile(stats['ms_brain'], 95):.1f}")
-            # 33ms is the 30Hz decision-loop budget NeuralPathways/README.md
-            # holds the circuit to. Over it usually means the brain is running
-            # under a slower brian2 install than intended - see
-            # brain_interpreter in the header above.
-            if brain_mean > 33.0:
-                log.raw(f"WARNING: brain_ms mean {brain_mean:.1f} exceeds the 33ms "
-                        f"30Hz budget. Check 'brain_interpreter' in the header - "
-                        f"pin the fast env with FLYBRAIN_PYTHON and re-run.")
-                print(f"\nWARNING: brain step averaged {brain_mean:.1f}ms (budget 33ms) - "
-                      f"the brain may be running under the wrong brian2 install.",
-                      flush=True)
-        if baseline_exp:
-            log.raw(f"baseline_expansion (quiet, max over columns) "
-                    f"mean={statistics.fmean(baseline_exp):.3f} "
-                    f"p95={percentile(baseline_exp, 95):.3f} "
-                    f"max={max(baseline_exp):.3f}")
-            log.raw(f"  -> compare against LOOM_EXPANSION_FLOOR="
-                    f"{fbc.LOOM_EXPANSION_FLOOR}: the floor must sit above this "
-                    f"noise or the circuit fires at nothing")
-        if stats["exp_c"]:
-            log.raw(f"peak_expansion_center={max(stats['exp_c']):.3f}  "
-                    f"peak_loom={max(stats['loom']):.3f}  "
-                    f"peak_escape={max(stats['escape']):.3f}  "
-                    f"(ESCAPE_STATE_THRESHOLD={fbc.ESCAPE_STATE_THRESHOLD})")
-        log.raw(f"state_cycle_counts: {state_counts}")
-        log.raw(f"swat_marks ({len(marks)}): {marks}")
-        log.raw(f"escape_triggers ({len(escape_events)}): {[t for t, _ in escape_events]}")
-        log.raw("END")
+        write_summary(log, run)
         log.close()
 
         try:
@@ -435,10 +427,10 @@ def main():
         cv2.destroyAllWindows()
 
         print(f"\nwrote {log.path}", flush=True)
-        print(f"accepted={accepted} duplicates={duplicates} "
-              f"marks={len(marks)} escape_triggers={len(escape_events)}", flush=True)
-        if stats["loom"]:
-            print(f"peak loom={max(stats['loom']):.2f} peak escape={max(stats['escape']):.2f}",
+        print(f"accepted={run.accepted} duplicates={run.duplicates} "
+              f"marks={len(run.marks)} escape_triggers={len(run.escape_events)}", flush=True)
+        if run.stats["loom"]:
+            print(f"peak loom={max(run.stats['loom']):.2f} peak escape={max(run.stats['escape']):.2f}",
                   flush=True)
 
 

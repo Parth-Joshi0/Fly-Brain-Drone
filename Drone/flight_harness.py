@@ -12,6 +12,10 @@ scripts they came from:
     tello_escape_flight_test.py, tello_optomotor_flight_test.py).
 Scripts import them under the names open_tello / open_stream, which is
 also what Drone/Tests/test_tello_harness_smoke.py patches.
+
+The desk tests also share capture_brain_requests (see every brain request
+and reply, not just the ones the adapter logs) and YawTracker (Tello
+attitude -> this project's yaw convention and a yaw rate).
 """
 
 import math
@@ -19,6 +23,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from Drone.tello_drone import TELLO_YAW_SIGN
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -326,3 +332,49 @@ def open_stream_for_flight(tello, log):
         time.sleep(0.05)
     log(f"ABORTED: no real frame within {FIRST_FRAME_TIMEOUT}s")
     raise SystemExit(1)
+
+
+def capture_brain_requests(controller):
+    """Wraps the brain subprocess request so the drive request going in and
+    the full readout coming back are visible EVERY cycle - FlyBrainController's
+    own _log_spikes only fires when a DN actually spiked, and does not return
+    the values to the caller. Returns the dict that holds the latest
+    {"payload": ..., "result": ...}."""
+    last = {}
+    inner_request = controller._brain.request
+
+    def capturing_request(payload):
+        result = inner_request(payload)
+        last.clear()
+        last.update(payload=payload, result=result)
+        return result
+
+    controller._brain.request = capturing_request
+    return last
+
+
+class YawTracker:
+    """Tello attitude -> (yaw in degrees, orientation quaternion, yaw rate in
+    rad/s), in this project's conventions.
+
+    The Tello reports yaw clockwise-positive; this project is
+    counter-clockwise-positive. Converted once, here, exactly as
+    Drone/tello_drone.py's get_state() does - these scripts read the attitude
+    themselves rather than going through it, so the conversion has to be
+    applied in both places or the perception tests and the flight path
+    disagree about which way a turn went."""
+
+    def __init__(self):
+        self._prev_yaw = None
+
+    def update(self, att, dt):
+        yaw_deg = TELLO_YAW_SIGN * att["yaw"]
+        quat = euler_deg_to_quat(att["roll"], att["pitch"], yaw_deg)
+        yaw_rad = math.radians(yaw_deg)
+        if self._prev_yaw is None:
+            yaw_rate = 0.0
+        else:
+            d_yaw = (yaw_rad - self._prev_yaw + math.pi) % (2 * math.pi) - math.pi
+            yaw_rate = d_yaw / dt
+        self._prev_yaw = yaw_rad
+        return yaw_deg, quat, yaw_rate

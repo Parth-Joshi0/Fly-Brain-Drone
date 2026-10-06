@@ -9,7 +9,9 @@ Everything specific to the real drone — the abstract drone contract, the DJI T
 | `drone_interface.py` | Abstract `DroneInterface` contract (`takeoff`, `land`, `move_forward`, `get_state`, ...) between the autonomous/manual controllers and whatever is actually flying the drone. |
 | `tello_drone.py` | Concrete `DroneInterface` backed by a real DJI Tello over `djitellopy`. No physics/PID cascade — the Tello's own onboard flight controller handles that; this class's job is bookkeeping (flight state, a dead-reckoned position estimate) and translating `DroneInterface` calls into `send_rc_control()`. Also where `TELLO_YAW_SIGN` lives — see Notes. |
 | `fly_tello.py` | The live "find and eat a banana" flight script: DJI Tello + `BananaModel`'s detector + `NeuralPathways/FoodNeuron`'s `FeedingBehaviour`. Defaults to a dry run (no takeoff); `--fly` for a real flight, `--scared` for the escape reflex, `--stabilize` for the DNg02 yaw stabilizer (see `NeuralPathways/ScaredEating/README.md`). Writes one CSV per run to `flight_logs/` and prints the loop rate / brain time at the end. |
-| `flight_harness.py` | What the `FlightTests/` scripts share: Tello camera geometry (FOV, processing size), stream start-up (`open_tello`/`open_stream` and their `_for_flight` variants), the `TelloLogger` log writer, and attitude readout. |
+| `flight_log.py` | `fly_tello.py`'s per-picture CSV log (`LOG_COLUMNS`, `flight_log_row`) and the end-of-run `Loop:`/`Brain:` timing summary (`LoopStats`). |
+| `flight_hud.py` | `fly_tello.py`'s on-screen overlay (`draw_hud`). |
+| `flight_harness.py` | What the `FlightTests/` scripts share: Tello camera geometry (FOV, processing size), stream start-up (`open_tello`/`open_stream` and their `_for_flight` variants), the `TelloLogger` log writer, attitude readout, `YawTracker` (Tello attitude -> this project's yaw convention and yaw rate) and `capture_brain_requests`. |
 | `flight_logs/` | All log output lands here — both real-flight telemetry from `fly_tello.py` (`flight_<timestamp>.csv`, one row per frame) and the diagnostic text logs the `FlightTests/` scripts write (see below). |
 
 ## Flight tests (`FlightTests/`)
@@ -72,7 +74,7 @@ python Drone/FlightTests/tello_dng02_test.py --analyze                 # scores 
 python Drone/FlightTests/tello_dng02_test.py --analyze path/to.log
 ```
 
-`--analyze` reads a log back (no drone, no brain) and reports eight PASS/FAIL checks — per-cell recruitment, whether it's graded, the steering channel, baseline noise, sign, and timing. Run it after every `--mode pan` session.
+`--analyze` reads a log back (no drone, no brain; the code is in `FlightTests/dng02_analysis.py`, alongside the calibration fit) and reports eight PASS/FAIL checks — per-cell recruitment, whether it's graded, the steering channel, baseline noise, sign, and timing. Run it after every `--mode pan` session.
 
 ### `tello_optomotor_flight_test.py`: first FLYING optomotor test (yaw only)
 

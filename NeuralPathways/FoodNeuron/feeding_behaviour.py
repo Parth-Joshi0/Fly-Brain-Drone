@@ -720,6 +720,46 @@ class FeedingBehaviour:
 
         self.last_update_time = now
 
+        target = self._sense(detections, frame_width, frame_height, yaw_deg, fresh, now, dt)
+
+        # States can hand over within one picture: SCARED -> WAIT once
+        # the back-off is done, WAIT -> APPROACH once the coast is clear.
+        if self.state == "SCARED":
+
+            cmd = self._update_scared(now, dt)
+
+            if cmd is not None:
+                return cmd
+
+        if self.state == "WAIT":
+
+            cmd = self._update_wait(now)
+
+            if cmd is not None:
+                return cmd
+
+        if self.state == "APPROACH":
+            return self._update_approach(now, dt, target, frame_width, frame_height)
+
+        if self.state == "LOOK":
+            return self._update_look(now)
+
+        if self.state == "LAND":
+            return RCCommand()
+
+        if self.state == "DONE":
+            return self._update_done(now)
+
+        if self.state == "FEED":
+            return self._update_feed(now, dt, target, frame_width, frame_height)
+
+        return self._update_scan(now, target, frame_width, frame_height)
+
+
+    def _sense(self, detections, frame_width, frame_height, yaw_deg, fresh, now, dt):
+        """Heading, the chosen banana, recent sightings and whether the fly
+        brain is quiet - everything the states below decide from. Returns
+        the chosen banana (or None)."""
 
         if yaw_deg is not None:
 
@@ -739,10 +779,8 @@ class FeedingBehaviour:
 
         self.current_target = target
 
-        target_visible = target is not None
 
-
-        if target_visible and fresh:
+        if target is not None and fresh:
 
             self.sightings.append(now)
 
@@ -762,7 +800,7 @@ class FeedingBehaviour:
             self.quiet_since = None
 
 
-        if target_visible:
+        if target is not None:
 
             self.last_target_time = now
 
@@ -778,279 +816,167 @@ class FeedingBehaviour:
                 frame_height
             )
 
-
-        # ====================================================
-        # SCARED: back straight away (eating pauses)
-        # ====================================================
-
-        if self.state == "SCARED":
-
-            if now - self.scared_start_time < BACK_AWAY_TIME:
-
-                self.backed_off += BACK_AWAY_SPEED * dt * COME_BACK_EXTRA
-
-                return self._direct(0, -BACK_AWAY_SPEED, 0, 0)
+        return target
 
 
+    # ========================================================
+    # SCARED: back straight away (eating pauses)
+    # ========================================================
+
+    def _update_scared(self, now, dt):
+        """Returns the back-off command, or None once it's over (-> WAIT)."""
+
+        if now - self.scared_start_time < BACK_AWAY_TIME:
+
+            self.backed_off += BACK_AWAY_SPEED * dt * COME_BACK_EXTRA
+
+            return self._direct(0, -BACK_AWAY_SPEED, 0, 0)
+
+
+        self.state = "WAIT"
+
+        self.wait_start_time = now
+
+        return None
+
+
+    # ========================================================
+    # WAIT: hover and look - is the coast clear?
+    # ========================================================
+
+    def _update_wait(self, now):
+        """Returns a hover, or None once it's safe to go back (-> APPROACH)."""
+
+        recent = [t for t in self.sightings if t >= self.wait_start_time]
+
+        banana_in_view = len(recent) > 0 and now - recent[-1] <= SEEN_RECENTLY
+
+        quiet = (
+            self.quiet_since is not None
+            and now - self.quiet_since >= QUIET_TIME
+        )
+
+        settled = now - self.wait_start_time >= SETTLE_TIME
+
+        if banana_in_view:
+
+            if settled and quiet:
+
+                # Food in view, nothing looming - come back fast
+                self._start_approach(now, True, after_scare=True)
+
+        else:
+
+            if now - self.wait_start_time >= WAIT_GIVE_UP_TIME and quiet:
+
+                # Can't see it at all - creep back and let the
+                # brain scare us off if something's still there
+                self._start_approach(now, False, after_scare=True)
+
+
+        if self.state == "WAIT":
+
+            return self._hover()
+
+        return None
+
+
+    # ========================================================
+    # APPROACH: FLY TO THE BANANA (first find, or coming back)
+    # ========================================================
+
+    def _creep_back_blind(self, now, dt, target_visible):
+        """The banana wasn't visible while waiting: creep straight back
+        until it shows up. Returns the command, or None once it's spotted
+        (camera-guided from there, on its own timer)."""
+
+        if target_visible:
+
+            self.return_saw_banana = True
+
+            self.return_start_time = now
+
+            return None
+
+        if (
+            self.backed_off > 0
+            and now - self.return_start_time < COME_BACK_MAX_TIME
+        ):
+
+            self.backed_off -= COME_BACK_SLOW_SPEED * dt
+
+            return self._smooth_command(0, COME_BACK_SLOW_SPEED, 0, 0)
+
+        # Made up the distance and still can't see it
+        return self._lost_banana(now)
+
+
+    def _update_approach(self, now, dt, target, frame_width, frame_height):
+
+        target_visible = target is not None
+
+        if not self.return_saw_banana:
+
+            cmd = self._creep_back_blind(now, dt, target_visible)
+
+            if cmd is not None:
+                return cmd
+
+        elapsed = now - self.return_start_time
+
+
+        # Lost the banana for a while
+        if now - self.last_target_time > APPROACH_LOST_TIME:
+
+            if self.approach_after_scare and self.backed_off > 0:
+
+                # Probably just too far to spot - creep back blind
+                self.return_saw_banana = False
+
+                self.return_start_time = now
+
+                return self._hover()
+
+
+            # Stop and take a proper (zoomed-in) look first
+            self.state = "LOOK"
+
+            self.look_start_time = now
+
+            return self._hover()
+
+
+        # Coming back fast after a scare: dash most of the way
+        dashing = self.approach_after_scare and self.backed_off > self.dash_until
+
+        if dashing and now - self.last_target_time > DASH_BLOCKED_TIME:
+
+            # Banana blocked mid-dash - something's in front: stop
             self.state = "WAIT"
 
             self.wait_start_time = now
 
+            return self._direct(0, 0, 0, 0)
 
-        # ====================================================
-        # WAIT: hover and look - is the coast clear?
-        # ====================================================
 
-        if self.state == "WAIT":
+        # Short flicker: keep going forward - the banana's straight
+        # ahead. (Stopping on every flicker made far-away approaches
+        # stand still most of the time.)
+        if not target_visible:
 
-            recent = [t for t in self.sightings if t >= self.wait_start_time]
+            speed = DASH_SPEED if dashing else self.approach_speed
 
-            banana_in_view = len(recent) > 0 and now - recent[-1] <= SEEN_RECENTLY
+            self.backed_off = max(0.0, self.backed_off - speed * dt)
 
-            quiet = (
-                self.quiet_since is not None
-                and now - self.quiet_since >= QUIET_TIME
-            )
+            return self._smooth_command(0, speed, 0, 0)
 
-            settled = now - self.wait_start_time >= SETTLE_TIME
 
-            if banana_in_view:
+        goal = max(EAT_SIZE_RATIO, self.size_before_scare * RETURN_GOAL_FRACTION)
 
-                if settled and quiet:
+        if self.last_box_ratio >= goal or elapsed > APPROACH_MAX_TIME:
 
-                    # Food in view, nothing looming - come back fast
-                    self._start_approach(now, True, after_scare=True)
-
-            else:
-
-                if now - self.wait_start_time >= WAIT_GIVE_UP_TIME and quiet:
-
-                    # Can't see it at all - creep back and let the
-                    # brain scare us off if something's still there
-                    self._start_approach(now, False, after_scare=True)
-
-
-            if self.state == "WAIT":
-
-                return self._hover()
-
-
-        # ====================================================
-        # APPROACH: FLY TO THE BANANA (first find, or coming back)
-        # ====================================================
-
-        if self.state == "APPROACH":
-
-            elapsed = now - self.return_start_time
-
-
-            # Blind creep (banana wasn't visible while waiting) - until
-            # it shows up, then switch to the camera-guided approach
-            if not self.return_saw_banana:
-
-                if target_visible:
-
-                    # Spotted it - camera-guided from here (its own timer)
-                    self.return_saw_banana = True
-
-                    self.return_start_time = now
-
-                    elapsed = 0.0
-
-                elif (
-                    self.backed_off > 0
-                    and elapsed < COME_BACK_MAX_TIME
-                ):
-
-                    self.backed_off -= COME_BACK_SLOW_SPEED * dt
-
-                    return self._smooth_command(0, COME_BACK_SLOW_SPEED, 0, 0)
-
-                else:
-
-                    # Made up the distance and still can't see it
-                    return self._lost_banana(now)
-
-
-            # Lost the banana for a while
-            if now - self.last_target_time > APPROACH_LOST_TIME:
-
-                if self.approach_after_scare and self.backed_off > 0:
-
-                    # Probably just too far to spot - creep back blind
-                    self.return_saw_banana = False
-
-                    self.return_start_time = now
-
-                    return self._hover()
-
-
-                # Stop and take a proper (zoomed-in) look first
-                self.state = "LOOK"
-
-                self.look_start_time = now
-
-                return self._hover()
-
-
-            # Coming back fast after a scare: dash most of the way
-            dashing = self.approach_after_scare and self.backed_off > self.dash_until
-
-            if dashing and now - self.last_target_time > DASH_BLOCKED_TIME:
-
-                # Banana blocked mid-dash - something's in front: stop
-                self.state = "WAIT"
-
-                self.wait_start_time = now
-
-                return self._direct(0, 0, 0, 0)
-
-
-            # Short flicker: keep going forward - the banana's straight
-            # ahead. (Stopping on every flicker made far-away approaches
-            # stand still most of the time.)
-            if not target_visible:
-
-                speed = DASH_SPEED if dashing else self.approach_speed
-
-                self.backed_off = max(0.0, self.backed_off - speed * dt)
-
-                return self._smooth_command(0, speed, 0, 0)
-
-
-            goal = max(EAT_SIZE_RATIO, self.size_before_scare * RETURN_GOAL_FRACTION)
-
-            if self.last_box_ratio >= goal or elapsed > APPROACH_MAX_TIME:
-
-                # Close enough - carry on eating
-                self.state = "FEED"
-
-                return self._keep_in_frame(
-                    target,
-                    frame_width,
-                    frame_height
-                )
-
-
-            # Fly toward it, slowing down as it gets bigger (dashing:
-            # full DASH_SPEED until most of the way back)
-            if dashing:
-
-                forward = DASH_SPEED
-
-            else:
-
-                forward = clamp(
-                    (goal - self.last_box_ratio) * APPROACH_GAIN,
-                    APPROACH_MIN_SPEED,
-                    APPROACH_MAX_SPEED
-                )
-
-            self.backed_off = max(0.0, self.backed_off - forward * dt)
-
-            # Keep this speed through flickers (see above) - not the dash's
-            if not dashing:
-                self.approach_speed = forward
-
-            return self._keep_in_frame(
-                target,
-                frame_width,
-                frame_height,
-                forward=forward,
-                center_deadzone=APPROACH_TURN_DEADZONE
-            )
-
-
-        # ====================================================
-        # DONE EATING -> SLIDE RIGHT, HOVER, THEN LAND
-        # ====================================================
-
-        # ====================================================
-        # LOOK: lost it on the way - stop and look (zoomed in)
-        # ====================================================
-
-        if self.state == "LOOK":
-
-            if self._banana_confirmed():
-
-                self._start_approach(now, True, self.approach_after_scare)
-
-                return self._hover()
-
-
-            if now - self.look_start_time >= LOOK_TIME:
-
-                return self._lost_banana(now)
-
-
-            return self._hover()
-
-
-        if self.state == "LAND":
-
-            return RCCommand()
-
-
-        if self.state == "DONE":
-
-            elapsed = now - self.done_start_time
-
-            if elapsed >= LAND_AFTER_EATING:
-
-                self.state = "LAND"
-
-                self.should_land = True
-
-                self.land_reason = "finished eating"
-
-                return self._hover()
-
-
-            if elapsed < DONE_VEER_TIME:
-
-                return self._smooth_command(DONE_VEER_SPEED, 0, 0, 0)
-
-
-            return self._hover()
-
-
-        # ====================================================
-        # FEED: KEEP BANANA IN THE PICTURE AND EAT
-        # ====================================================
-
-        if self.state == "FEED":
-
-            # Back at the food - nothing left to make up
-            self.backed_off = 0.0
-
-            if not target_visible:
-
-                # Lost it for a while: go and look for it.
-                if now - self.last_target_time > FEED_LOST_HOLD_TIME:
-
-                    return self._lost_banana(now)
-
-
-                # Blink: hold still, eating pauses.
-                return self._hover()
-
-
-            # Eat (only while the banana is in view)
-            self.hunger = clamp(
-                self.hunger - FEED_RATE * dt,
-                0.0,
-                100.0
-            )
-
-
-            if self.hunger <= FULL_THRESHOLD:
-
-                self.state = "DONE"
-
-                self.done_start_time = now
-
-                return self._smooth_command(DONE_VEER_SPEED, 0, 0, 0)
-
+            # Close enough - carry on eating
+            self.state = "FEED"
 
             return self._keep_in_frame(
                 target,
@@ -1059,11 +985,135 @@ class FeedingBehaviour:
             )
 
 
-        # ====================================================
-        # SCAN THE ROOM
-        # ====================================================
+        # Fly toward it, slowing down as it gets bigger (dashing:
+        # full DASH_SPEED until most of the way back)
+        if dashing:
 
-        if target_visible and self._banana_confirmed():
+            forward = DASH_SPEED
+
+        else:
+
+            forward = clamp(
+                (goal - self.last_box_ratio) * APPROACH_GAIN,
+                APPROACH_MIN_SPEED,
+                APPROACH_MAX_SPEED
+            )
+
+        self.backed_off = max(0.0, self.backed_off - forward * dt)
+
+        # Keep this speed through flickers (see above) - not the dash's
+        if not dashing:
+            self.approach_speed = forward
+
+        return self._keep_in_frame(
+            target,
+            frame_width,
+            frame_height,
+            forward=forward,
+            center_deadzone=APPROACH_TURN_DEADZONE
+        )
+
+
+    # ========================================================
+    # LOOK: lost it on the way - stop and look (zoomed in)
+    # ========================================================
+
+    def _update_look(self, now):
+
+        if self._banana_confirmed():
+
+            self._start_approach(now, True, self.approach_after_scare)
+
+            return self._hover()
+
+
+        if now - self.look_start_time >= LOOK_TIME:
+
+            return self._lost_banana(now)
+
+
+        return self._hover()
+
+
+    # ========================================================
+    # DONE EATING -> SLIDE RIGHT, HOVER, THEN LAND
+    # ========================================================
+
+    def _update_done(self, now):
+
+        elapsed = now - self.done_start_time
+
+        if elapsed >= LAND_AFTER_EATING:
+
+            self.state = "LAND"
+
+            self.should_land = True
+
+            self.land_reason = "finished eating"
+
+            return self._hover()
+
+
+        if elapsed < DONE_VEER_TIME:
+
+            return self._smooth_command(DONE_VEER_SPEED, 0, 0, 0)
+
+
+        return self._hover()
+
+
+    # ========================================================
+    # FEED: KEEP BANANA IN THE PICTURE AND EAT
+    # ========================================================
+
+    def _update_feed(self, now, dt, target, frame_width, frame_height):
+
+        # Back at the food - nothing left to make up
+        self.backed_off = 0.0
+
+        if target is None:
+
+            # Lost it for a while: go and look for it.
+            if now - self.last_target_time > FEED_LOST_HOLD_TIME:
+
+                return self._lost_banana(now)
+
+
+            # Blink: hold still, eating pauses.
+            return self._hover()
+
+
+        # Eat (only while the banana is in view)
+        self.hunger = clamp(
+            self.hunger - FEED_RATE * dt,
+            0.0,
+            100.0
+        )
+
+
+        if self.hunger <= FULL_THRESHOLD:
+
+            self.state = "DONE"
+
+            self.done_start_time = now
+
+            return self._smooth_command(DONE_VEER_SPEED, 0, 0, 0)
+
+
+        return self._keep_in_frame(
+            target,
+            frame_width,
+            frame_height
+        )
+
+
+    # ========================================================
+    # SCAN THE ROOM
+    # ========================================================
+
+    def _update_scan(self, now, target, frame_width, frame_height):
+
+        if target is not None and self._banana_confirmed():
 
             # Found one - fly to it (from next frame)
             self._start_approach(now, True, after_scare=False)
@@ -1075,4 +1125,4 @@ class FeedingBehaviour:
             )
 
 
-        return self._scan_command(now, target_visible)
+        return self._scan_command(now, target is not None)

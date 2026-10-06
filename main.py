@@ -198,12 +198,51 @@ def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, f
     return out
 
 
-def main():
-    sim = PyBulletSimulator(banana_position=BANANA_POSITION if USE_BANANA else None)
-    env = sim.connect()
-    drone = sim.create_drone(start_pos=(0, 0, 0.05))
-    manual = ManualController()
-    step_count = 0
+# safety_info when SafetyLayer isn't consulted this cycle
+NO_SAFETY_OVERRIDE = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
+
+
+class FlowSensor:
+    """Camera frame -> the flow dict every controller's decide() reads:
+    grid flow strengths, signed rotation/translation for DNg02, and the
+    looming expansion per column. Also shows the flow debug window."""
+
+    def __init__(self):
+        self.looming = LoomingDetector()
+        self.flow_viz = None  # lazily sized from the first camera frame
+        self.prev_gray = None
+        self.flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0,
+                     "expansion_left": 0.0, "expansion_center": 0.0, "expansion_right": 0.0}
+
+    def update(self, frame, capture_state, dt):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if self.flow_viz is None:
+            height, width = gray.shape[:2]
+            self.flow_viz = FlowVisualizer(width, height)
+
+        expansion = self.looming.update(gray, capture_state["orientation"], dt)
+        if self.prev_gray is not None:
+            raw_flow = compute_flow(self.prev_gray, gray)
+            derotated = derotate_flow(raw_flow, capture_state["yaw_rate"], dt)
+            self.flow = grid_flow_strengths(derotated)
+            # Signed rotation/translation for DNg02 - only these
+            # two keys: its "left"/"right" are signed means, not
+            # the magnitudes grid_flow_strengths put there.
+            hemifields = signed_hemifield_flow(derotated)
+            self.flow["rotation"] = hemifields["rotation"]
+            self.flow["translation"] = hemifields["translation"]
+            cv2.imshow("Optical Flow", self.flow_viz.render(derotated))
+        self.flow.update({f"expansion_{side}": value for side, value in expansion.items()})
+        self.prev_gray = gray
+        return self.flow
+
+    def reset(self):
+        self.prev_gray = None
+        self.looming.reset()
+
+
+def build_autonomous(env, clock):
+    """The autonomous controller the USE_* flags ask for."""
     brain = None
     if USE_FLYBRAIN:
         from NeuralPathways.flybrain_controller import FlyBrainController
@@ -212,26 +251,90 @@ def main():
         # Imported here so the other modes don't need torch/ultralytics
         from BananaModel.banana_detector import BananaDetector
         from Controllers.banana_seek_controller import BananaSeekController
-        # Physics time, not wall time: with the detector and the brain in
-        # the loop the sim runs slower than real time, and feeding_behaviour's
-        # timers (hunger, back-off, waits) are about what the drone did.
-        autonomous = BananaSeekController(BananaDetector(), brain=brain,
-                                          clock=lambda: step_count * sim.physics_dt)
-    elif brain is not None:
-        autonomous = brain
+        return BananaSeekController(BananaDetector(), brain=brain, clock=clock)
+    if brain is not None:
+        return brain
+    return ReflexController(bounds=env["bounds"])
+
+
+def choose_command(mode, exploring, input_state, frame, flow, state_now, autonomous, manual, safety):
+    """The command for this cycle, and the SafetyLayer verdict on it.
+    Returns (final_cmd, safety_info)."""
+    if mode == "manual":
+        raw_cmd = manual.decide(input_state)
+    elif exploring:
+        if USE_BANANA:
+            autonomous.see(frame)
+        raw_cmd = autonomous.decide(flow, state_now)  # still runs on live
+                                                        # flow even in test mode -
+                                                        # only its movement gets
+                                                        # thrown away below
+        if NEURON_TEST_MODE and not USE_BANANA and autonomous.state != "ESCAPE":
+            raw_cmd = dict(EMPTY_CMD)
+            raw_cmd["hover"] = True
+        raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
     else:
-        autonomous = ReflexController(bounds=env["bounds"])
+        raw_cmd = dict(EMPTY_CMD)
+        raw_cmd.update(emergency_keys(input_state))
+
+    # Banana mode flies without the flow SafetyLayer, as the
+    # real Tello does (fly_tello.py sends rc straight to the
+    # drone): it's built for exploring - it speed-stages any
+    # non-hover command up to cruise speed, reads eating in
+    # place as STUCK after STUCK_WINDOW, and steers away from
+    # the banana's stand once close. pybullet_drone.py's
+    # physics-distance net still applies underneath.
+    if mode == "manual" or (exploring and not USE_BANANA):
+        # 2. Obstacle safety/reflex layer - final override
+        # authority (this is what makes "hold/request forward
+        # into a wall" impossible even while flying itself).
+        # already_avoiding tells it the FSM is already turning
+        # away from something, so it won't add a second,
+        # possibly-disagreeing turn decision on top.
+        already_avoiding = autonomous.state in AVOIDING_STATES
+        return safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
+    return raw_cmd, dict(NO_SAFETY_OVERRIDE)
+
+
+def print_status(mode, autonomous, safety_info, final_cmd, state, flow):
+    action = action_label(mode, autonomous, safety_info)
+    # Same split as draw_debug_overlay: the turn/grid fields are
+    # ReflexController-only, since FlyBrainController doesn't
+    # track an exploration grid.
+    grid_fields = ""
+    if hasattr(autonomous, "current_cell"):
+        grid_fields = (
+            f"turn={autonomous.turn_command:>9} "
+            f"cell={autonomous.current_cell} least_visited={autonomous.least_visited_cell} "
+            f"wall_time={autonomous.wall_time_seconds:.1f}s "
+        )
+    print(
+        f"[{mode:>10}][STATE={autonomous.state:>17}][ACTION={action:>22}] "
+        f"fwd={final_cmd['forward_speed']:.2f}m/s {grid_fields}"
+        f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
+        f"collided={state['collided']} avoidance={safety_info['active']} stuck={safety_info['stuck']} "
+        f"LEFT={flow['left']:.2f} CENTER={flow['center']:.2f} RIGHT={flow['right']:.2f}",
+        flush=True,
+    )
+
+
+def main():
+    sim = PyBulletSimulator(banana_position=BANANA_POSITION if USE_BANANA else None)
+    env = sim.connect()
+    drone = sim.create_drone(start_pos=(0, 0, 0.05))
+    manual = ManualController()
+    step_count = 0
+    # Physics time, not wall time: with the detector and the brain in
+    # the loop the sim runs slower than real time, and feeding_behaviour's
+    # timers (hunger, back-off, waits) are about what the drone did.
+    autonomous = build_autonomous(env, clock=lambda: step_count * sim.physics_dt)
     safety = SafetyLayer()
-    flow_viz = None  # lazily sized from the first camera frame (see below)
-    looming = LoomingDetector()
+    sensor = FlowSensor()
 
     mode = "autonomous"  # fully autonomous by default (item 1) - press M for manual
     drone.takeoff()
-    prev_gray = None
-    flow = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0, "center": 0.0,
-            "expansion_left": 0.0, "expansion_center": 0.0, "expansion_right": 0.0}
     final_cmd = dict(EMPTY_CMD)
-    safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
+    safety_info = dict(NO_SAFETY_OVERRIDE)
     flying_cycle_count = 0  # counts decision cycles spent in "flying" state,
                              # for the "hover briefly before exploring" grace period
     was_exploring = False
@@ -246,26 +349,7 @@ def main():
                     decision_dt = DECISION_INTERVAL_STEPS * sim.physics_dt
 
                     frame = drone.get_camera_frame()
-                    capture_state = drone.get_state()
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    if flow_viz is None:
-                        height, width = gray.shape[:2]
-                        flow_viz = FlowVisualizer(width, height)
-
-                    expansion = looming.update(gray, capture_state["orientation"], decision_dt)
-                    if prev_gray is not None:
-                        raw_flow = compute_flow(prev_gray, gray)
-                        derotated = derotate_flow(raw_flow, capture_state["yaw_rate"], decision_dt)
-                        flow = grid_flow_strengths(derotated)
-                        # Signed rotation/translation for DNg02 - only these
-                        # two keys: its "left"/"right" are signed means, not
-                        # the magnitudes grid_flow_strengths put there.
-                        hemifields = signed_hemifield_flow(derotated)
-                        flow["rotation"] = hemifields["rotation"]
-                        flow["translation"] = hemifields["translation"]
-                        cv2.imshow("Optical Flow", flow_viz.render(derotated))
-                    flow.update({f"expansion_{side}": value for side, value in expansion.items()})
-                    prev_gray = gray
+                    flow = sensor.update(frame, drone.get_state(), decision_dt)
 
                     input_state = sim.poll_input()
                     if input_state["mode_toggle_pressed"]:
@@ -293,47 +377,13 @@ def main():
                         autonomous.reset()
                     was_exploring = exploring
 
-                    if mode == "manual":
-                        raw_cmd = manual.decide(input_state)
-                    elif exploring:
-                        if USE_BANANA:
-                            autonomous.see(frame)
-                        raw_cmd = autonomous.decide(flow, state_now)  # still runs on live
-                                                                        # flow even in test mode -
-                                                                        # only its movement gets
-                                                                        # thrown away below
-                        if NEURON_TEST_MODE and not USE_BANANA and autonomous.state != "ESCAPE":
-                            raw_cmd = dict(EMPTY_CMD)
-                            raw_cmd["hover"] = True
-                        raw_cmd.update(emergency_keys(input_state))  # Space/L/R still work
-                    else:
-                        raw_cmd = dict(EMPTY_CMD)
-                        raw_cmd.update(emergency_keys(input_state))
-
-                    # Banana mode flies without the flow SafetyLayer, as the
-                    # real Tello does (fly_tello.py sends rc straight to the
-                    # drone): it's built for exploring - it speed-stages any
-                    # non-hover command up to cruise speed, reads eating in
-                    # place as STUCK after STUCK_WINDOW, and steers away from
-                    # the banana's stand once close. pybullet_drone.py's
-                    # physics-distance net still applies underneath.
-                    if mode == "manual" or (exploring and not USE_BANANA):
-                        # 2. Obstacle safety/reflex layer - final override
-                        # authority (this is what makes "hold/request forward
-                        # into a wall" impossible even while flying itself).
-                        # already_avoiding tells it the FSM is already turning
-                        # away from something, so it won't add a second,
-                        # possibly-disagreeing turn decision on top.
-                        already_avoiding = autonomous.state in AVOIDING_STATES
-                        final_cmd, safety_info = safety.apply(raw_cmd, flow, state_now["position"], already_avoiding)
-                    else:
-                        final_cmd = raw_cmd
-                        safety_info = {"level": "CLEAR", "active": False, "direction": "FORWARD", "stuck": False}
+                    final_cmd, safety_info = choose_command(
+                        mode, exploring, input_state, frame, flow, state_now,
+                        autonomous, manual, safety)
 
                     # 3. Send the final (possibly overridden) command to the drone
                     if apply_command(drone, final_cmd):
-                        prev_gray = None
-                        looming.reset()
+                        sensor.reset()
                         flying_cycle_count = 0
                         autonomous.reset()
                         safety.reset()
@@ -347,25 +397,7 @@ def main():
                     cv2.waitKey(1)
 
                     if step_count % (DECISION_INTERVAL_STEPS * 15) == 0:
-                        action = action_label(mode, autonomous, safety_info)
-                        # Same split as draw_debug_overlay: the turn/grid fields are
-                        # ReflexController-only, since FlyBrainController doesn't
-                        # track an exploration grid.
-                        grid_fields = ""
-                        if hasattr(autonomous, "current_cell"):
-                            grid_fields = (
-                                f"turn={autonomous.turn_command:>9} "
-                                f"cell={autonomous.current_cell} least_visited={autonomous.least_visited_cell} "
-                                f"wall_time={autonomous.wall_time_seconds:.1f}s "
-                            )
-                        print(
-                            f"[{mode:>10}][STATE={autonomous.state:>17}][ACTION={action:>22}] "
-                            f"fwd={final_cmd['forward_speed']:.2f}m/s {grid_fields}"
-                            f"pos=({state['position'][0]:.1f},{state['position'][1]:.1f}) "
-                            f"collided={state['collided']} avoidance={safety_info['active']} stuck={safety_info['stuck']} "
-                            f"LEFT={flow['left']:.2f} CENTER={flow['center']:.2f} RIGHT={flow['right']:.2f}",
-                            flush=True,
-                        )
+                        print_status(mode, autonomous, safety_info, final_cmd, state, flow)
 
                     if state["position"][0] >= env["goal_x"]:
                         print("Course completed!", flush=True)
