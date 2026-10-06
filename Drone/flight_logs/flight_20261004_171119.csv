@@ -1,1 +1,0 @@
-time_s,mode,state,bananas_seen,label,det_conf,cls_conf,size_pct,hunger,lr,fb,ud,yaw,battery,brain,escape_dir,loom_l,loom_c,loom_r,escape_level,wobble_floor,loom_in_l,loom_in_r,hand,self_moving,fps,brain_ms,dng02_rotation,dng02_l,dng02_r,dng02_steer,dng02_thrust,intended_yaw,dng02_yaw

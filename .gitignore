@@ -12,6 +12,7 @@ venv/
 # only BananaModel/yolov8n.pt is meant to be tracked
 /yolov8n.pt
 /yolov8s.pt
+BananaModel/yolov8s.pt
 
 # BananaModel training images (downloaded separately)
 dataset
@@ -25,3 +26,6 @@ NeuralPathways/Data/flywire_neuron_annotations_630.tsv
 
 .claude
 CLAUDE.md
+
+# Banana flight diaries (Drone/fly_tello.py) - kept locally, not uploaded
+Drone/flight_logs/flight_*.csv
