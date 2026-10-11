@@ -146,7 +146,9 @@ Each `Detection` has:
 | `label` | Ripeness class name |
 | `cls_conf` | Classifier's confidence in that label |
 
-`BananaDetector` options: `detector_conf_threshold` (default 0.4),
+`BananaDetector` options: `detector_conf_threshold` (default 0.15),
+`detector_img_size` (YOLO input size, default 640; the drone uses 960
+so small, far-away bananas are still found, at about 2× the time),
 `classifier_conf_threshold` (default 0.0), `padding_ratio` (default
 0.08), `device` (defaults to CUDA if available, otherwise CPU).
 
