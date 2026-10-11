@@ -2,6 +2,8 @@
 
 Everything that decides what the drone should do next, apart from the fly brain itself (`NeuralPathways/flybrain_controller.py`), plus the safety net that every command passes through. Each controller exposes the same `decide(flow, state) -> command dict` contract, so they're drop-in swaps for each other and for `FlyBrainController`.
 
+Class, state and activity diagrams for everything below live in [UML.md](UML.md).
+
 ## Files
 
 | File | What it does |
