@@ -1,14 +1,28 @@
-# Simulator — UML
+# Simulator UML Diagrams
 
-Class, state and activity diagrams for the PyBullet simulator. See [README.md](README.md) for what each file is and how to run the tests, tools and evaluation.
+UML diagrams for the `Simulator/` folder. See [README.md](README.md) for what
+each file does and how to run the tests, tools and evaluation.
 
-## Architecture (UML)
+Python modules that only contain functions and constants are shown as
+`<<module>>` classes, following `BananaModel/UML.md`.
 
-Three structural views of the same code: the runtime classes, the module-level builders that have no class, and the evaluation/test layer. The activity diagrams below cover the control flow inside them. Methods marked `*` are abstract; `-` marks the `_private` helpers (their real names keep the leading underscore).
+The folder has three layers:
 
-### 1. Runtime classes
+- **Contracts** (`simulator_interface.py`, plus `Drone/drone_interface.py`):
+  the abstract classes `main.py` talks to. Swapping the sim for the real
+  Tello means writing one new implementation of each.
+- **PyBullet implementation** (`pybullet_simulator.py`, `pybullet_drone.py`,
+  `quadcopter_body.py`, `camera.py`, `environment.py`, `banana.py`): the
+  virtual drone, its camera, and the course it flies through.
+- **Harnesses** (`Tests/`, `Tools/`, `Evaluation/`): scripts that drive the
+  above and print a summary.
 
-The two abstract contracts — `SimulatorInterface` here and `DroneInterface` from `Drone/drone_interface.py` — are the only thing `main.py` knows about. Everything below them is PyBullet-specific and swappable.
+## 1. Class diagram: contracts and the flight stack
+
+Every member of `SimulatorInterface` and `DroneInterface` is abstract except
+`SimulatorInterface.is_connected()` and
+`SimulatorInterface.update_test_obstacles()`, which have working defaults so
+real hardware does not have to implement them.
 
 ```mermaid
 classDiagram
@@ -16,131 +30,154 @@ classDiagram
 
     class SimulatorInterface {
         <<abstract>>
-        +physics_dt: float
-        +connect()*
-        +create_drone(start_pos)*
-        +poll_input()*
-        +update_debug_view(position, yaw_degrees)*
-        +tick()*
-        +is_connected()
-        +update_test_obstacles(drone_position, drone_yaw_degrees, dt)
+        +float physics_dt
+        +connect() dict
+        +create_drone(start_pos) DroneInterface
+        +poll_input() dict
+        +update_debug_view(position, yaw_degrees) None
+        +tick() None
+        +is_connected() bool
+        +update_test_obstacles(position, yaw_degrees, dt) None
     }
 
     class DroneInterface {
         <<abstract>>
-        +takeoff()*
-        +land()*
-        +hover()*
-        +move_forward(speed)*
-        +move_backward(speed)*
-        +move_left(speed)*
-        +move_right(speed)*
-        +turn_left(rate)*
-        +turn_right(rate)*
-        +get_camera_frame()*
-        +get_state()*
-        +step()*
-        +reset()*
+        +takeoff() None
+        +land() None
+        +hover() None
+        +move_forward(speed) None
+        +move_backward(speed) None
+        +move_left(speed) None
+        +move_right(speed) None
+        +turn_left(rate) None
+        +turn_right(rate) None
+        +get_camera_frame() ndarray
+        +get_state() dict
+        +step() None
+        +reset() None
     }
 
     class PyBulletSimulator {
-        -_banana_position
-        -_env : dict
-        -_drone : PyBulletDrone
-        -_heading_line_id
-        -_test_obstacle_texture
-        -_test_obstacles : list
-        -_MOUSE_BUTTON_EVENT = 2
-        +__init__(banana_position=None)
+        -tuple _banana_position
+        -dict _env
+        -PyBulletDrone _drone
+        -int _heading_line_id
+        -int _test_obstacle_texture
+        -list _test_obstacles
+        -int _MOUSE_BUTTON_EVENT = 2
+        +PyBulletSimulator(banana_position)
         +connect() dict
         +create_drone(start_pos) PyBulletDrone
         +poll_input() dict
-        +update_debug_view(position, yaw_degrees)
+        +update_debug_view(position, yaw_degrees) None
         +is_connected() bool
-        +physics_dt : float
-        +tick()
-        +update_test_obstacles(drone_position, drone_yaw_degrees, dt)
+        +tick() None
+        +update_test_obstacles(position, yaw_degrees, dt) None
         -_left_click_triggered() bool
-        -_spawn_test_obstacle(drone_position, drone_yaw_degrees)
+        -_spawn_test_obstacle(position, yaw_degrees) None
     }
 
     class PyBulletDrone {
-        +start_pos
-        +body : QuadcopterBody
-        +camera : DroneCamera
-        +ground_id
-        +obstacle_ids : set
-        +state : str
-        +target_altitude : float
-        +target_vx, target_vy, target_yaw_rate : float
-        +collided, emergency : bool
-        +emergency_stop_count : int
-        +min_obstacle_distance : float
-        +safety_override : bool
-        +__init__(start_pos, ground_id, obstacle_ids)
-        +takeoff() land() hover()
-        +move_forward(speed) move_backward(speed)
-        +move_left(speed) move_right(speed)
-        +move_up() move_down() relax_altitude()
-        +turn_left(rate) turn_right(rate)
+        +QuadcopterBody body
+        +DroneCamera camera
+        +tuple start_pos
+        +int ground_id
+        +set obstacle_ids
+        +str state
+        +float target_altitude
+        +float target_vx
+        +float target_vy
+        +float target_yaw_rate
+        +bool collided
+        +bool emergency
+        +int emergency_stop_count
+        +float min_obstacle_distance
+        +bool safety_override
+        +PyBulletDrone(start_pos, ground_id, obstacle_ids)
+        +takeoff() None
+        +land() None
+        +hover() None
+        +move_forward(speed) None
+        +move_backward(speed) None
+        +move_left(speed) None
+        +move_right(speed) None
+        +move_up() None
+        +move_down() None
+        +relax_altitude() None
+        +turn_left(rate) None
+        +turn_right(rate) None
         +get_camera_frame() ndarray
         +get_state() dict
-        +step()
-        +reset()
-        -_reset_flight_vars()
+        +step() None
+        +reset() None
+        -_reset_flight_vars() None
         -_current_altitude() float
         -_effective_target_altitude() float
         -_closest_obstacle_distance(position, yaw) float
-        -_run_state_machine()
-        -_check_safety_and_collisions()
+        -_run_state_machine() None
+        -_check_safety_and_collisions() None
     }
 
     class _PID {
-        +kp, ki, kd : float
-        +integral : float
-        +prev_error : float
-        +__init__(kp, ki=0.0, kd=0.0)
-        +update(error, dt, derivative=None) float
-        +reset()
+        +float kp
+        +float ki
+        +float kd
+        +float integral
+        +float prev_error
+        +_PID(kp, ki, kd)
+        +update(error, dt, derivative) float
+        +reset() None
     }
 
     class QuadcopterBody {
-        +mass : float
-        +id : int
-        +start_pos
-        +__init__(start_pos, mass=1.0, half_extents=(0.15, 0.15, 0.04))
-        +apply_control(thrust, torque_roll, torque_pitch, torque_yaw)
+        +float mass
+        +int id
+        +tuple start_pos
+        +QuadcopterBody(start_pos, mass, half_extents)
+        +apply_control(thrust, roll, pitch, yaw) None
         +get_state() dict
         +get_contacts() list
-        +closest_distance(other_body_id, max_distance=5.0) float
-        +reset(start_pos=None)
+        +closest_distance(other_body_id, max_distance) float
+        +reset(start_pos) None
     }
 
     class DroneCamera {
-        +width, height : int
-        +fov, near, far : float
-        +aspect : float
+        +int width
+        +int height
+        +float fov
+        +float near
+        +float far
+        +float aspect
         +projection_matrix
-        +__init__(width=320, height=240, fov=75, near=0.05, far=50)
+        +DroneCamera(width, height, fov, near, far)
         +capture(position, orientation_quat) ndarray
     }
 
     SimulatorInterface <|-- PyBulletSimulator : implements
     DroneInterface <|-- PyBulletDrone : implements
 
-    PyBulletSimulator "1" --> "1" PyBulletDrone : creates, owns as _drone
-    PyBulletDrone "1" *-- "1" QuadcopterBody : body
-    PyBulletDrone "1" *-- "1" DroneCamera : camera
-    PyBulletDrone "1" *-- "4" _PID : alt, roll, pitch, yaw
-    PyBulletDrone ..> DroneCamera : capture(pose from body.get_state())
-
-    note for PyBulletDrone "Flight controller layer: cascaded PIDs.\nvelocity error to target tilt to torque,\nseparate altitude loop, rate-controlled yaw.\nAlso owns the proximity safety net."
-    note for QuadcopterBody "Knows nothing about forward or hover -\njust a rigid box pushed by force and torque."
+    PyBulletSimulator --> "1" PyBulletDrone : creates and owns
+    PyBulletDrone *-- "1" QuadcopterBody : body
+    PyBulletDrone *-- "1" DroneCamera : camera
+    PyBulletDrone *-- "4" _PID : altitude, roll, pitch, yaw
 ```
 
-### 2. Module-level builders and helpers
+`PyBulletDrone` is the flight-controller layer: cascaded PID loops turn a
+desired velocity into a target tilt, that tilt into a torque, and a separate
+loop turns a target altitude into thrust, with yaw rate-controlled directly.
+It also owns the proximity safety net. `QuadcopterBody` knows nothing about
+"forward" or "hover" — it is one rigid box pushed around by force and torque.
+`DroneCamera` is handed the pose that `PyBulletDrone` read from
+`QuadcopterBody.get_state()`; it never queries the body itself.
 
-`environment.py` and `banana.py` hold no classes at all — only functions plus the tunable constants. `PyBulletSimulator.connect()` is the single caller of both.
+`QuadcopterBody` defaults to `mass=1.0` and `half_extents` of 0.15 by 0.15 by
+0.04 m; `DroneCamera` defaults to 320 by 240 at a 75 degree field of view.
+
+## 2. Class diagram: modules, builders and constants
+
+`environment.py` and `banana.py` hold no classes at all — only functions plus
+the tunable constants. `PyBulletSimulator.connect()` is the single caller of
+both.
 
 ```mermaid
 classDiagram
@@ -148,379 +185,419 @@ classDiagram
 
     class environment {
         <<module>>
-        -_ASSET_DIR : str
-        +FLOOR_TEXTURE : str
-        +OBSTACLE_TEXTURE : str
-        +GOAL_X = 16.0
-        +COURSE_MARGIN = 3.0
+        +str FLOOR_TEXTURE
+        +str OBSTACLE_TEXTURE
+        +float GOAL_X = 16.0
+        +float COURSE_MARGIN = 3.0
+        -str _ASSET_DIR
         -_add_box(half_extents, position, texture_id) int
         +build_environment() dict
     }
 
     class banana {
         <<module>>
-        +BANANA_PHOTO : str
-        +BANANA_WIDTH = 1.2
-        +BANANA_HEIGHT = 1.45
-        +STAND_HALF_WIDTH = 0.06
-        +TEXTURE_ROWS = 48
-        -_asset_dir : str
+        +str BANANA_PHOTO
+        +float BANANA_WIDTH = 1.2
+        +float BANANA_HEIGHT = 1.45
+        +float STAND_HALF_WIDTH = 0.06
+        +int TEXTURE_ROWS = 48
+        -str _asset_dir
         -_write_texture(path) float
         -_write_card(path, aspect) float
         -_assets() tuple
-        +add_banana(position, yaw_degrees=180.0) tuple
+        +add_banana(position, yaw_degrees) tuple
     }
 
     class simulator_interface {
         <<module>>
-        +EMPTY_INPUT : dict
-        +SimulatorInterface
+        +dict EMPTY_INPUT
     }
 
     class pybullet_simulator {
         <<module>>
-        +SimulatorError = p.error
-        +DEBUG_CAMERA_DISTANCE, _YAW, _PITCH
-        +HEADING_LINE_LENGTH = 1.5
-        +TEST_OBSTACLE_DISTANCE = 4.0
-        +TEST_OBSTACLE_SPEED = 1.5
-        +TEST_OBSTACLE_HALF_EXTENTS
-        +PyBulletSimulator
+        +SimulatorError
+        +float DEBUG_CAMERA_DISTANCE = 7.0
+        +int DEBUG_CAMERA_YAW = 50
+        +int DEBUG_CAMERA_PITCH = -35
+        +float HEADING_LINE_LENGTH = 1.5
+        +float TEST_OBSTACLE_DISTANCE = 4.0
+        +float TEST_OBSTACLE_SPEED = 1.5
+        +list TEST_OBSTACLE_HALF_EXTENTS
     }
 
     class pybullet_drone {
         <<module>>
-        +GRAVITY = 9.81
-        +PHYSICS_DT = 1/240
-        +MASS, MIN_ALTITUDE, NORMAL_ALTITUDE, MAX_ALTITUDE
-        +MAX_SPEED, MAX_YAW_RATE, MAX_TILT
-        +SAFETY_DISTANCE, CRITICAL_DISTANCE, RETREAT_SPEED
-        +FORWARD_CONE_DEGREES = 70
-        +ALTITUDE_STEP, RETURN_TO_NORMAL_STEP
-        +ALT_KP, ALT_KI, ALT_KD
-        +VEL_TO_TILT_KP, TILT_KP, TILT_KD, YAW_KP
-        +EMERGENCY_HOVER_STEPS = 180
-        +_PID
-        +PyBulletDrone
+        +float GRAVITY = 9.81
+        +float PHYSICS_DT
+        +float MASS = 1.0
+        +float MIN_ALTITUDE = 0.5
+        +float NORMAL_ALTITUDE = 1.5
+        +float MAX_ALTITUDE = 3.0
+        +float MAX_SPEED = 2.0
+        +float MAX_YAW_RATE = 1.5
+        +float MAX_TILT = 0.45
+        +float SAFETY_DISTANCE = 0.6
+        +float CRITICAL_DISTANCE = 0.3
+        +float RETREAT_SPEED = 0.25
+        +int FORWARD_CONE_DEGREES = 70
+        +float ALTITUDE_STEP = 0.02
+        +float RETURN_TO_NORMAL_STEP = 0.01
+        +float ALT_KP = 10.0
+        +float ALT_KI = 1.0
+        +float ALT_KD = 9.0
+        +float VEL_TO_TILT_KP = 0.18
+        +float TILT_KP = 0.09
+        +float TILT_KD = 0.025
+        +float YAW_KP = 0.22
+        +int EMERGENCY_HOVER_STEPS = 180
     }
 
     class camera {
         <<module>>
-        +DroneCamera
     }
 
     class quadcopter_body {
         <<module>>
-        +QuadcopterBody
     }
 
-    environment ..> environment : build_environment() calls _add_box() 7x
-    banana ..> banana : _assets() calls _write_card() calls _write_texture()
+    simulator_interface *-- SimulatorInterface : defines
+    pybullet_simulator *-- PyBulletSimulator : defines
+    pybullet_drone *-- PyBulletDrone : defines
+    pybullet_drone *-- _PID : defines
+    camera *-- DroneCamera : defines
+    quadcopter_body *-- QuadcopterBody : defines
 
-    pybullet_simulator ..> environment : build_environment(), OBSTACLE_TEXTURE
-    pybullet_simulator ..> banana : add_banana(banana_position)
-    pybullet_simulator ..> simulator_interface : SimulatorInterface, EMPTY_INPUT shape
-    pybullet_simulator ..> pybullet_drone : PyBulletDrone, PHYSICS_DT, GRAVITY
-    pybullet_drone ..> camera : DroneCamera
-    pybullet_drone ..> quadcopter_body : QuadcopterBody
-
-    note for environment "Obstacle surfaces are striped on purpose:\noptical flow needs pixel-level gradients.\nReturns plane, obstacles, goal_x, bounds."
-    note for banana "A photo on a flat card, not a 3D model -\nstock COCO YOLOv8n never boxed the model.\nThe stand has collision, the card does not."
+    pybullet_simulator ..> environment : build_environment
+    pybullet_simulator ..> banana : add_banana
+    pybullet_simulator ..> simulator_interface : implements contract
+    pybullet_simulator ..> pybullet_drone : creates the drone
+    pybullet_drone ..> camera : mounts a camera
+    pybullet_drone ..> quadcopter_body : wraps a body
 ```
 
-### 3. Evaluation, Tests and Tools
+`PHYSICS_DT` is 1/240 s, so one `step()` is one 240 Hz tick.
+`build_environment()` calls `_add_box()` seven times — two perimeter walls, a
+box to dodge, two walls forming a narrow passage, and a pillar — then adds a
+collision-free goal marker and returns `plane`, `obstacles`, `goal_x` and
+`bounds`. Obstacle surfaces are striped on purpose: optical flow needs real
+pixel-level gradients to track.
 
-`TrialMetrics` is the only class in this layer; everything else is a script that drives the simulator and prints a summary.
+In `banana.py` the call chain is `_assets()` to `_write_card()` to
+`_write_texture()`. The banana is a real photo on a flat card rather than a 3D
+model, because stock COCO YOLOv8n never boxed the model in PyBullet's
+renderer. The stand has collision so the proximity net sees it; the card does
+not, since it only needs to be seen.
+
+## 3. Class diagram: harnesses
+
+`TrialMetrics` is the only class in this layer; everything else is a module or
+a script.
 
 ```mermaid
 classDiagram
     direction TB
 
     class TrialMetrics {
-        +goal_x : float
-        +start_pos
-        +decision_steps : int
-        +distance_traveled : float
-        +min_obstacle_distance : float
-        +emergency_stops, collisions : int
-        +completed, crashed, successful : bool
-        +avoidance_attempts, avoidance_successes : int
-        +flight_time, average_speed : float
-        -_last_pos
-        -_speed_sum, _speed_samples
-        -_was_avoiding : bool
-        -_avoidance_pending_deadline
-        +__init__(goal_x)
-        +start(position)
-        +update(position, speed, obstacle_distance, emergency_stop_count, collided, is_avoidance_command)
+        +float goal_x
+        +tuple start_pos
+        +int decision_steps
+        +float distance_traveled
+        +float min_obstacle_distance
+        +int emergency_stops
+        +int collisions
+        +bool completed
+        +bool crashed
+        +bool successful
+        +int avoidance_attempts
+        +int avoidance_successes
+        +float flight_time
+        +float average_speed
+        -tuple _last_pos
+        -float _speed_sum
+        -int _speed_samples
+        -bool _was_avoiding
+        -int _avoidance_pending_deadline
+        +TrialMetrics(goal_x)
+        +start(position) None
+        +update(position, speed, obstacle_distance, stops, collided, avoiding) None
         +finalize(decision_dt) TrialMetrics
         +summary_line() str
     }
 
     class metrics {
         <<module>>
-        +CONFIRM_WINDOW_STEPS = 45
-        +TrialMetrics
-        +print_summary(trials)
+        +int CONFIRM_WINDOW_STEPS = 45
+        +print_summary(trials) None
     }
 
     class run_trials {
         <<module>>
-        +DECISION_INTERVAL_STEPS = 8
-        +MAX_TRIAL_SECONDS = 25
+        +int DECISION_INTERVAL_STEPS = 8
+        +int MAX_TRIAL_SECONDS = 25
         +run_trial() TrialMetrics
-        +main()
+        +main() None
     }
 
     class test_escape_sim {
         <<script>>
-        +MODE : hover, hover2, fly, cruise
-        +TEST_MODE, SPAWN, RUN_CYCLES
-        -_record_floor(state)
-        +prints escape events, closest approach
+        +str MODE
+        +bool TEST_MODE
+        +bool SPAWN
+        +bool MAGNITUDE
+        +int RUN_CYCLES
+        -_record_floor(state) float
     }
 
     class test_banana_sim {
         <<script>>
-        +MODE : eat, scare
-        +SCARE_AFTER_FEED_S = 3.0
-        +MAX_SIM_S = 90.0
-        +prints state timeline, Giant Fiber firings
+        +str MODE
+        +bool USE_BRAIN
+        +bool OPTOMOTOR
+        +float SCARE_AFTER_FEED_S = 3.0
+        +float MAX_SIM_S = 90.0
     }
 
     class test_main_gui {
         <<script>>
-        +CLICKS : list
-        +RUN_AFTER_LAST_CLICK = 130
-        +update_test_obstacles(self, position, yaw_degrees, dt)
-        +fake_click(self)
-        +decide(self, flow, state=None)
+        +list CLICKS
+        +int RUN_AFTER_LAST_CLICK = 130
+        +update_test_obstacles(self, position, yaw_degrees, dt) None
+        +fake_click(self) bool
+        +decide(self, flow, state) dict
     }
 
     class drone_step_response {
         <<script>>
-        +axis : strafe or forward
-        +CONST=value overrides of pybullet_drone
-        +prints velocity, displacement, tilt every 0.1s
+        +str axis
     }
 
-    metrics *-- TrialMetrics
-    run_trials ..> metrics : TrialMetrics, print_summary
-    run_trials ..> environment : build_environment()
-    run_trials ..> PyBulletDrone : drives directly, no PyBulletSimulator
+    metrics *-- TrialMetrics : defines
+    run_trials ..> metrics : TrialMetrics and print_summary
+    run_trials ..> environment : build_environment
+    run_trials ..> PyBulletDrone : drives the drone directly
 
-    test_escape_sim ..> PyBulletSimulator
-    test_banana_sim ..> PyBulletSimulator
-    drone_step_response ..> PyBulletSimulator
-    test_main_gui ..> PyBulletSimulator : monkeypatches update_test_obstacles and _left_click_triggered
-
-    note for test_main_gui "The only test that runs the real main.py.\nThe others re-implement its decision loop,\nso they miss bugs that live in main.py."
-    note for run_trials "Bypasses SimulatorInterface entirely:\nconnects p.DIRECT itself and resets the sim\nper trial, with a randomized start y."
+    test_escape_sim ..> PyBulletSimulator : drives
+    test_banana_sim ..> PyBulletSimulator : drives
+    drone_step_response ..> PyBulletSimulator : drives
+    test_main_gui ..> PyBulletSimulator : monkeypatches
 ```
 
-## Activity diagrams
+Two structural details the table in the README does not show.
+`run_trials.py` bypasses `SimulatorInterface` entirely: it connects
+`p.DIRECT` itself and resets the simulation once per trial, with a randomized
+start `y`. `test_main_gui.py` is the only harness that runs the real
+`main.py`; it replaces `PyBulletSimulator.update_test_obstacles` and
+`_left_click_triggered` on the class, and `FlyBrainController.decide`, to fake
+clicks and record escapes. The others re-implement `main.py`'s decision loop,
+so they miss bugs that live in `main.py` itself.
 
-Where the class diagrams show what exists, these show what *happens* — the branching the code actually takes. Four activities plus the flight state machine they drive.
+`drone_step_response.py` and `test_escape_sim.py` both accept `CONST=value`
+arguments that override module constants for that run, in `pybullet_drone.py`
+and `flybrain_controller.py` respectively.
 
-### 4. `PyBulletDrone.step()` — one physics tick (240 Hz)
+## 4. Activity diagram: `PyBulletDrone.step()`, one physics tick
 
-The whole control cycle. Note the ordering that matters: the state machine and collision check run *before* the PIDs, and the proximity safety net overwrites `target_vx`/`target_vy` *after* the controller set them but *before* they become a tilt — so it can veto any command, manual or autonomous.
+The whole control cycle, run once per 240 Hz tick. The ordering matters: the
+state machine and the collision check run before the PIDs, and the proximity
+safety net overwrites `target_vx` and `target_vy` after the controller set
+them but before they become a tilt — so it can veto any command, manual or
+autonomous.
 
 ```mermaid
 flowchart TD
-    A([step called]) --> B["_run_state_machine()"]
+    start([step called]) --> sm["_run_state_machine()<br/>read altitude and vertical speed"]
+    sm --> which{"current state?"}
 
-    B --> B1{"current state?"}
-    B1 -->|taking_off| B2{"within 0.05 m of NORMAL_ALTITUDE<br/>and vertical speed settled?"}
-    B2 -->|yes| B3["state = flying"]
-    B2 -->|no| C
-    B1 -->|landing| B4{"altitude under 0.08 m<br/>and vertical speed settled?"}
-    B4 -->|yes| B5["state = landed<br/>zero target_vx, target_vy, target_yaw_rate"]
-    B4 -->|no| C
-    B1 -->|emergency| B6["_emergency_timer += 1"]
-    B6 --> B7{"timer over EMERGENCY_HOVER_STEPS?"}
-    B7 -->|yes| B8["land()"]
-    B7 -->|no| C
-    B1 -->|idle, landed, flying| C
-    B3 --> C
-    B5 --> C
-    B8 --> C
+    which -- taking_off --> arrived{"within 0.05 m of NORMAL_ALTITUDE<br/>and vertical speed settled?"}
+    arrived -- yes --> fly["state = flying"] --> coll
+    arrived -- no --> coll
 
-    C["_check_safety_and_collisions()<br/>body.get_contacts()"] --> C1{"hit an obstacle, or hit the<br/>ground while taking off or flying?"}
-    C1 -->|"yes, and not already in emergency"| C2["collided = true, emergency = true<br/>emergency_stop_count += 1<br/>_emergency_timer = 0<br/>state = emergency, hover()"]
-    C1 -->|"no, and state is not emergency"| C3["emergency = false"]
-    C1 -->|"otherwise, leave the flags alone"| D
-    C2 --> D
-    C3 --> D
+    which -- landing --> down{"altitude under 0.08 m<br/>and vertical speed settled?"}
+    down -- yes --> grounded["state = landed<br/>zero all three velocity targets"] --> coll
+    down -- no --> coll
 
-    D["read position, orientation, velocity<br/>rotate angular velocity into body frame<br/>so roll and pitch damping stay correct while yawing"] --> E{"state is idle or landed?"}
-    E -->|yes| E1["p.stepSimulation()"]
-    E1 --> EZ([return, motors off])
-    E -->|no| F{"state is landing?"}
+    which -- emergency --> timer["_emergency_timer += 1"]
+    timer --> expired{"timer past EMERGENCY_HOVER_STEPS?"}
+    expired -- yes --> autoland["land()"] --> coll
+    expired -- no --> coll
 
-    F -->|yes| F1["_landing_altitude -= 0.4 * dt<br/>ramp toward the ground"]
-    F -->|no| F2["clamp target_altitude<br/>to MIN_ALTITUDE..MAX_ALTITUDE"]
-    F1 --> G
-    F2 --> G
+    which -- other --> coll
 
-    G["altitude loop:<br/>thrust = MASS * GRAVITY + alt_pid.update(error, dt, -vz)<br/>clamped at 0"] --> H["min_obstacle_distance =<br/>_closest_obstacle_distance(position, yaw)"]
+    coll["_check_safety_and_collisions()<br/>body.get_contacts()"] --> hit{"hit an obstacle, or hit the ground<br/>while taking off or flying?"}
+    hit -- "yes, and not already in emergency" --> panic["collided = true, emergency = true<br/>emergency_stop_count += 1<br/>_emergency_timer = 0<br/>state = emergency, hover()"] --> read
+    hit -- "no, and state is not emergency" --> clear["emergency = false"] --> read
+    hit -- otherwise --> read
 
-    H --> H1{"distance under CRITICAL_DISTANCE?"}
-    H1 -->|yes| H2["safety_override = true<br/>override target to reverse at RETREAT_SPEED"]
-    H1 -->|no| H3{"distance under SAFETY_DISTANCE?"}
-    H3 -->|yes| H4["safety_override = true<br/>cap forward target at 0<br/>braking, backing away and strafing still allowed"]
-    H3 -->|"no, or no obstacles registered"| I
-    H2 --> I
-    H4 --> I
+    read["read position, orientation, velocity<br/>rotate angular velocity into body frame<br/>so tilt damping survives a yaw"] --> motors{"state is idle or landed?"}
+    motors -- yes --> idlestep["p.stepSimulation()"] --> off([return, motors off])
 
-    I["outer loop: rotate measured velocity into body frame<br/>velocity error to desired pitch and roll<br/>clamped to MAX_TILT"] --> J["inner loop: pitch and roll PIDs to torques<br/>yaw rate PID to torque_yaw"]
-    J --> K["body.apply_control(thrust, roll, pitch, yaw)"]
-    K --> L["p.stepSimulation()"]
-    L --> Z([return])
+    motors -- no --> isLanding{"state is landing?"}
+    isLanding -- yes --> ramp["_landing_altitude drifts down<br/>at 0.4 m per second"] --> thrust
+    isLanding -- no --> clamp["clamp target_altitude between<br/>MIN_ALTITUDE and MAX_ALTITUDE"] --> thrust
+
+    thrust["altitude loop<br/>thrust = weight plus alt PID output<br/>clamped at zero"] --> near["min_obstacle_distance =<br/>_closest_obstacle_distance<br/>nearest point inside the forward cone"]
+
+    near --> critical{"closer than CRITICAL_DISTANCE?"}
+    critical -- yes --> retreat["safety_override = true<br/>override target to reverse<br/>at RETREAT_SPEED"] --> tilt
+    critical -- no --> warn{"closer than SAFETY_DISTANCE?"}
+    warn -- yes --> cap["safety_override = true<br/>cap forward target at zero<br/>braking and strafing still allowed"] --> tilt
+    warn -- "no, or no obstacles" --> tilt
+
+    tilt["outer loop<br/>rotate measured velocity into body frame<br/>velocity error becomes desired pitch and roll<br/>clamped to MAX_TILT"] --> torque["inner loop<br/>pitch and roll PIDs give torques<br/>yaw rate PID gives torque_yaw"]
+    torque --> apply["body.apply_control"]
+    apply --> sim["p.stepSimulation()"]
+    sim --> done([return])
 ```
 
-### 5. Flight state machine
+Only obstacles roughly ahead count for the safety net —
+`_closest_obstacle_distance()` keeps a point only if it lies within
+`FORWARD_CONE_DEGREES` of the heading. Without that cone, a wall merely
+alongside the drone, being correctly steered around, zeroed forward speed
+anyway.
 
-`PyBulletDrone.state` — what the decisions in activity 4 are moving between. Only `takeoff()`, `land()` and a collision change it from outside.
+## 5. State diagram: the flight state machine
+
+`PyBulletDrone.state`, which is what the decisions in activity 4 move
+between. Only `takeoff()`, `land()`, `reset()` and a collision change it.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> idle : __init__ / reset()
+    [*] --> idle
 
-    idle --> taking_off : takeoff()
-    landed --> taking_off : takeoff()
-    taking_off --> flying : reached NORMAL_ALTITUDE<br/>and vertical speed settled
+    idle --> taking_off : takeoff
+    landed --> taking_off : takeoff
+    taking_off --> flying : reached cruise altitude
 
     taking_off --> emergency : collision
     flying --> emergency : collision
-    emergency --> landing : _emergency_timer over<br/>EMERGENCY_HOVER_STEPS, calls land()
+    emergency --> landing : hover timer expired
 
-    taking_off --> landing : land()
-    flying --> landing : land()
-    emergency --> landing : land()
-    landing --> landed : altitude under 0.08 m<br/>and vertical speed settled
+    taking_off --> landing : land
+    flying --> landing : land
+    emergency --> landing : land
+    landing --> landed : touched down
 
-    landed --> idle : reset()
-    flying --> idle : reset()
-
-    note right of idle
-        idle and landed are the only states
-        where step() skips the PIDs entirely
-        and just calls stepSimulation
-    end note
-    note right of emergency
-        entered by _check_safety_and_collisions
-        on any obstacle contact, or on ground
-        contact while taking off or flying;
-        hover() is issued immediately
-    end note
+    landed --> idle : reset
+    flying --> idle : reset
 ```
 
-### 6. The decision cycle — a full trial
+`idle` and `landed` are the only states where `step()` skips the PIDs
+entirely and just advances the simulation, so the drone sits still with its
+motors off. `emergency` is entered by `_check_safety_and_collisions()` on any
+obstacle contact, or on ground contact while taking off or flying; `hover()`
+is issued immediately, and after `EMERGENCY_HOVER_STEPS` ticks the drone
+lands itself.
 
-`Evaluation/run_trials.py`'s loop, which is also the shape `main.py` and the three test harnesses use: physics at 240 Hz, decisions every 8th tick at 30 Hz. The pre-exploration hover gate is the subtle part — the safety layer is skipped entirely until the drone has been `flying` long enough, or its stuck-detector primes on the intentional hover.
+## 6. Activity diagram: the decision cycle, one trial
+
+`Evaluation/run_trials.py`'s loop, which is the shape `main.py` and the three
+test harnesses all use: physics at 240 Hz, a decision every eighth tick at
+30 Hz.
 
 ```mermaid
 flowchart TD
-    A([run_trial]) --> B["p.resetSimulation(), setGravity<br/>build_environment()"]
-    B --> C["PyBulletDrone with randomized start y<br/>ReflexController, SafetyLayer, TrialMetrics"]
-    C --> D["drone.takeoff()"]
-    D --> E{"physics steps remaining?"}
-    E -->|no| ZF["metrics.finalize(decision_dt)"]
+    start([run_trial]) --> build["p.resetSimulation and setGravity<br/>build_environment()"]
+    build --> make["PyBulletDrone with a randomized start y<br/>ReflexController, SafetyLayer, TrialMetrics"]
+    make --> takeoff["drone.takeoff()"]
+    takeoff --> more{"physics steps left?"}
+    more -- no --> fin["metrics.finalize(decision_dt)"]
 
-    E -->|yes| F["drone.step()<br/>see activity 4"]
-    F --> G{"tick index mod<br/>DECISION_INTERVAL_STEPS == 0?"}
-    G -->|"no, physics only"| E
+    more -- yes --> tick["drone.step()<br/>see activity 4"]
+    tick --> isDecision{"eighth tick?"}
+    isDecision -- no --> more
 
-    G -->|yes| H["frame = drone.get_camera_frame()<br/>convert to grayscale"]
-    H --> I{"flight_state == flying?"}
-    I -->|yes| I1["flying_cycle_count += 1"]
-    I -->|no| I2["flying_cycle_count = 0"]
-    I1 --> J
-    I2 --> J
+    isDecision -- yes --> frame["frame = drone.get_camera_frame()<br/>convert to grayscale"]
+    frame --> airborne{"flight_state is flying?"}
+    airborne -- yes --> inc["flying_cycle_count += 1"] --> hasPrev
+    airborne -- no --> zero["flying_cycle_count = 0"] --> hasPrev
 
-    J{"have a previous frame?"}
-    J -->|"no, first cycle"| P
-    J -->|yes| K["compute_flow(prev, gray)<br/>derotate_flow by measured yaw rate<br/>grid_flow_strengths"]
+    hasPrev{"is there a previous frame?"}
+    hasPrev -- "no, first cycle" --> keep
+    hasPrev -- yes --> flowcalc["compute_flow<br/>derotate_flow by measured yaw rate<br/>grid_flow_strengths"]
 
-    K --> L{"flying_cycle_count over<br/>HOVER_BEFORE_EXPLORE_CYCLES?"}
-    L -->|"no, still in the pre-explore hover"| M1["cmd = EMPTY_CMD<br/>safety skipped, level = CLEAR"]
-    L -->|yes| M2["raw_cmd = controller.decide(flow, state)"]
-    M2 --> M3["safety.apply(raw_cmd, flow, position,<br/>already_avoiding)"]
-    M1 --> N
-    M3 --> N
+    flowcalc --> gate{"flying_cycle_count past<br/>HOVER_BEFORE_EXPLORE_CYCLES?"}
+    gate -- "no, pre-explore hover" --> empty["cmd = EMPTY_CMD<br/>safety layer skipped"] --> send
+    gate -- yes --> decide["raw_cmd = controller.decide"]
+    decide --> safety["safety.apply with the already_avoiding flag"] --> send
 
-    N["apply_command(drone, cmd)<br/>sets target velocities, yaw rate, altitude"] --> O["is_avoidance = safety_info active flag"]
-    O --> P["prev_gray = gray"]
+    send["apply_command sets target velocities,<br/>yaw rate and altitude on the drone"] --> keep["prev_gray = gray"]
+    keep --> measure["closest_distance to every course obstacle,<br/>keep the minimum"]
+    measure --> record["metrics.update"]
+    record --> stop{"reached goal_x, or landed?"}
+    stop -- yes --> fin
+    stop -- no --> more
 
-    P --> Q["closest_distance to every course obstacle<br/>keep the minimum"]
-    Q --> R["metrics.update(position, speed, distance,<br/>emergency_stop_count, collided, is_avoidance)"]
-    R --> S{"reached goal_x, or state == landed?"}
-    S -->|yes| ZF
-    S -->|no| E
-
-    ZF --> ZG(["TrialMetrics, then print_summary across trials"])
+    fin --> out([TrialMetrics, then print_summary across trials])
 ```
 
-### 7. `TrialMetrics.update()` — scoring one decision cycle
+The pre-exploration hover gate is the subtle part: until the drone has been
+`flying` for `HOVER_BEFORE_EXPLORE_CYCLES`, the controller and the safety
+layer are skipped entirely and an empty command is sent, because the safety
+layer's stuck-detector would otherwise prime on the intentional hover.
 
-How an avoidance manoeuvre gets counted. Rising-edge detection means holding a turn for 40 cycles is still one attempt, and an attempt only becomes a success once it has stayed crash-free for `CONFIRM_WINDOW_STEPS` (~1.5 s).
+## 7. Activity diagram: `TrialMetrics.update()`
+
+How one decision cycle is scored, and in particular how an avoidance
+manoeuvre gets counted.
 
 ```mermaid
 flowchart TD
-    A([update called once per decision cycle]) --> B["decision_steps += 1<br/>accumulate distance from last position<br/>accumulate speed sample"]
-    B --> C{"obstacle_distance reported?"}
-    C -->|yes| C1["min_obstacle_distance = min(so far, this)"]
-    C -->|no| D
-    C1 --> D
+    start([update, once per decision cycle]) --> acc["decision_steps += 1<br/>add distance from the last position<br/>add a speed sample"]
+    acc --> hasDist{"an obstacle distance was reported?"}
+    hasDist -- yes --> keepMin["min_obstacle_distance keeps the smaller"] --> stops
+    hasDist -- no --> stops
 
-    D{"emergency_stop_count<br/>higher than recorded?"}
-    D -->|yes| D1["emergency_stops = collisions = new count"]
-    D -->|no| E
-    D1 --> E
+    stops{"emergency_stop_count above the record?"}
+    stops -- yes --> bump["emergency_stops and collisions<br/>both take the new count"] --> crashed
+    stops -- no --> crashed
 
-    E{"collided this cycle?"}
-    E -->|yes| E1["crashed = true<br/>drop any pending avoidance deadline,<br/>that attempt just failed"]
-    E -->|no| F
-    E1 --> F
+    crashed{"collided this cycle?"}
+    crashed -- yes --> fail["crashed = true<br/>drop any pending avoidance deadline,<br/>that attempt just failed"] --> goal
+    crashed -- no --> goal
 
-    F{"position x at or past goal_x?"}
-    F -->|yes| F1["completed = true"]
-    F -->|no| G
-    F1 --> G
+    goal{"position x at or past goal_x?"}
+    goal -- yes --> complete["completed = true"] --> edge
+    goal -- no --> edge
 
-    G{"avoidance command active<br/>and it was not last cycle?"}
-    G -->|"yes, rising edge"| G1["avoidance_attempts += 1<br/>set deadline = decision_steps + CONFIRM_WINDOW_STEPS"]
-    G -->|"no, held or idle"| H
-    G1 --> H
+    edge{"avoidance command active now<br/>but not last cycle?"}
+    edge -- "yes, rising edge" --> attempt["avoidance_attempts += 1<br/>deadline = now plus CONFIRM_WINDOW_STEPS"] --> remember
+    edge -- "no, held or idle" --> remember
 
-    H["_was_avoiding = is_avoidance_command"] --> I{"a deadline is pending,<br/>now reached, and still not crashed?"}
-    I -->|yes| I1["avoidance_successes += 1<br/>clear the deadline"]
-    I -->|no| Z
-    I1 --> Z
-    Z([return])
+    remember["_was_avoiding = the current flag"] --> due{"a deadline is pending, now reached,<br/>and still not crashed?"}
+    due -- yes --> win["avoidance_successes += 1<br/>clear the deadline"] --> out
+    due -- no --> out
+    out([return])
 ```
 
-### 8. `update_test_obstacles()` — the on-demand looming stimulus
+Rising-edge detection means holding a turn for forty cycles is still one
+attempt, and an attempt only becomes a success once it has stayed crash-free
+for `CONFIRM_WINDOW_STEPS`, about 1.5 s at 30 Hz.
 
-`PyBulletSimulator`'s debug hook, called once per decision cycle. A left-click conjures a block ahead of the drone's current heading, which then flies straight back at it; the harnesses in `Tests/` call `_spawn_test_obstacle()` directly instead of faking a click.
+## 8. Activity diagram: `update_test_obstacles()`
+
+`PyBulletSimulator`'s debug hook, called once per decision cycle. A left
+click conjures a block ahead of the drone's current heading, which then flies
+straight back at it — a looming stimulus on demand, instead of waiting to
+stumble into a real obstacle.
 
 ```mermaid
 flowchart TD
-    A([update_test_obstacles called]) --> B{"_left_click_triggered()?<br/>scan getMouseEvents for a<br/>left button press"}
-    B -->|yes| C["_spawn_test_obstacle(position, yaw)"]
-    C --> C1["place a textured box<br/>TEST_OBSTACLE_DISTANCE ahead of the heading"]
-    C1 --> C2["record direction straight back at the drone<br/>remaining = TEST_OBSTACLE_DISTANCE"]
-    C2 --> C3["drone.obstacle_ids.add(body_id)<br/>so the proximity net can see it"]
-    C3 --> D
-    B -->|no| D
+    start([update_test_obstacles]) --> click{"_left_click_triggered?<br/>scan getMouseEvents for<br/>a left button press"}
+    click -- yes --> spawn["_spawn_test_obstacle"]
+    spawn --> place["place a textured box<br/>TEST_OBSTACLE_DISTANCE ahead of the heading"]
+    place --> aim["record a direction straight back at the drone<br/>remaining = TEST_OBSTACLE_DISTANCE"]
+    aim --> register["drone.obstacle_ids.add<br/>so the proximity net can see it"]
+    register --> loop
+    click -- no --> loop
 
-    D{"more live test obstacles<br/>to advance?"}
-    D -->|no| Z(["_test_obstacles = the survivors"])
-    D -->|yes| E["remaining -= TEST_OBSTACLE_SPEED * dt"]
-    E --> F{"remaining at or below 0?"}
-    F -->|"yes, it has passed the drone"| G["p.removeBody(id)<br/>drone.obstacle_ids.discard(id)<br/>drop it"]
-    F -->|no| H["advance position along direction<br/>resetBasePositionAndOrientation<br/>keep it"]
-    G --> D
-    H --> D
+    loop{"another live test obstacle?"}
+    loop -- no --> out([keep only the survivors])
+    loop -- yes --> advance["remaining decreases by<br/>TEST_OBSTACLE_SPEED times dt"]
+    advance --> past{"remaining at or below zero?"}
+    past -- "yes, it has passed the drone" --> drop["p.removeBody<br/>drone.obstacle_ids.discard<br/>forget it"] --> loop
+    past -- no --> move["advance the position<br/>resetBasePositionAndOrientation<br/>keep it"] --> loop
 ```
+
+The harnesses in `Tests/` call `_spawn_test_obstacle()` directly rather than
+faking a click, except `test_main_gui.py`, which replaces
+`_left_click_triggered()` so that the real `main.py` loop does the spawning.
