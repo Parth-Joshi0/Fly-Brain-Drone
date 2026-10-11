@@ -2,6 +2,8 @@
 
 Everything specific to the real drone — the abstract drone contract, the DJI Tello implementation of it, the live banana-eating flight script, and the real-hardware tests. `Simulator/pybullet_drone.py` implements the same `DroneInterface` contract for the simulated drone; nothing above this layer (`main.py`, `Controllers/`, `NeuralPathways/`) needs to know which one it's talking to.
 
+Class, state and activity diagrams for everything below live in [UML.md](UML.md).
+
 ## Files
 
 | File | What it does |
