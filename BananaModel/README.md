@@ -46,8 +46,7 @@ model's outputs follow this order):
 ## Dataset
 
 Image folders in `dataset/{train,valid,test}/<class>/`. The source
-of the images isn't recorded in the repo (`.gitignore` lists a
-`README.roboflow.txt`, so it was probably exported from Roboflow).
+of the images is from Roboflow.
 
 | Class | Train | Valid | Test |
 |---|---:|---:|---:|
