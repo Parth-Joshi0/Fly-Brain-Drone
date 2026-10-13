@@ -35,13 +35,17 @@ The looming neurons only fire for things getting CLOSER, not for
 something held still - so "is it safe to come back?" is answered by
 the camera (can I see my food?), like a fly looking before it returns.
 
-Any banana is food. Hunger only goes down while the banana is
+Any banana is food, but the most rotten one in view is preferred (real
+flies are drawn to fermenting fruit). The ripeness label flickers from
+picture to picture on the drone, so each banana's label is a vote over
+its last 10 pictures, and once the drone has picked a banana it sticks
+with it. Hunger only goes down while the banana is
 actually in view. While eating the drone holds still, only making
 small moves to keep the banana in the picture.
 """
 
 import time
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass
 
 
@@ -57,6 +61,33 @@ BANANA_LABELS = {
     "unripe",
     "freshunripe",
 }
+
+# Least to most rotten - the fly prefers the banana furthest along.
+# (Where freshunripe/unripe and freshripe/ripe sit relative to each
+# other is our best guess from the dataset's names.)
+RIPENESS_ORDER = [
+    "freshunripe",
+    "unripe",
+    "freshripe",
+    "ripe",
+    "overripe",
+    "rotten",
+]
+
+# The same banana flicked between rotten and freshripe from picture to
+# picture in flight (training photos are close-up and well lit, the
+# drone's view isn't) - so a banana's label is the most common one over
+# its last LABEL_HISTORY pictures
+LABEL_HISTORY = 10
+
+# Boxes in consecutive pictures overlapping at least this much (IoU)
+# are the same banana
+SAME_BANANA_OVERLAP = 0.3
+
+# Forget a banana's label history once it's been out of view this long
+# (= FEED_LOST_HOLD_TIME, so a banana that blinks out while eating
+# keeps its history)
+FORGET_BANANA_TIME = 3.0
 
 
 # ============================================================
@@ -299,6 +330,51 @@ def smooth(old_value, new_value, alpha):
     )
 
 
+def overlap(a, b):
+    """Intersection over union of two (x1, y1, x2, y2) boxes."""
+
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+
+    inter = ix * iy
+
+    union = (
+        (a[2] - a[0]) * (a[3] - a[1])
+        + (b[2] - b[0]) * (b[3] - b[1])
+        - inter
+    )
+
+    return inter / union if union > 0 else 0.0
+
+
+# ============================================================
+# ONE BANANA'S LABEL HISTORY
+# ============================================================
+
+class BananaTrack:
+
+    def __init__(self, box, now):
+
+        self.box = box
+        self.last_seen = now
+        self.labels = deque(maxlen=LABEL_HISTORY)
+
+
+    @property
+    def label(self):
+        """Most common label over the last LABEL_HISTORY pictures
+        (a tie goes to whichever of them was seen most recently)."""
+
+        counts = Counter(self.labels)
+
+        most = max(counts.values())
+
+        for label in reversed(self.labels):
+
+            if counts[label] == most:
+                return label
+
+
 # ============================================================
 # FOOD BRAIN
 # ============================================================
@@ -320,7 +396,12 @@ class FeedingBehaviour:
 
         # Target
         self.current_target = None
-        self.last_target_label = None
+        self.last_target_label = None    # voted label (see BananaTrack)
+
+        # Every banana seen recently, with its label history, and the
+        # one we picked
+        self.tracks = []
+        self.target_track = None
         self.last_box_ratio = 0.0
         self.last_target_time = 0.0
 
@@ -414,9 +495,78 @@ class FeedingBehaviour:
     # CHOOSE BANANA
     # ========================================================
 
+    def _match_tracks(
+        self,
+        detections,
+        now,
+        fresh
+    ):
+        """Pair each banana with its track from earlier pictures (biggest
+        box overlap first), starting new tracks for new bananas. Only
+        fresh pictures add a vote. Returns [(detection, track)]."""
+
+        self.tracks = [
+            t for t in self.tracks
+            if now - t.last_seen <= FORGET_BANANA_TIME
+        ]
+
+        pairs = sorted(
+            (
+                (overlap(d.box, t.box), i, j)
+                for i, d in enumerate(detections)
+                for j, t in enumerate(self.tracks)
+            ),
+            reverse=True
+        )
+
+        matched = {}
+        used = set()
+
+        for iou, i, j in pairs:
+
+            if iou < SAME_BANANA_OVERLAP:
+                break
+
+            if i not in matched and j not in used:
+
+                matched[i] = self.tracks[j]
+
+                used.add(j)
+
+
+        result = []
+
+        for i, d in enumerate(detections):
+
+            track = matched.get(i)
+
+            is_new = track is None
+
+            if is_new:
+
+                track = BananaTrack(d.box, now)
+
+                self.tracks.append(track)
+
+            track.box = d.box
+
+            # (a new banana needs its first vote either way)
+            if fresh or is_new:
+
+                track.labels.append(d.label.lower())
+
+                track.last_seen = now
+
+            result.append((d, track))
+
+        return result
+
+
     def _choose_target(
         self,
-        detections
+        detections,
+        now,
+        fresh
     ):
 
         valid = [
@@ -426,20 +576,37 @@ class FeedingBehaviour:
             and d.cls_conf >= MIN_CLASSIFIER_CONFIDENCE
         ]
 
-        if not valid:
+        seen = self._match_tracks(valid, now, fresh)
+
+        if not seen:
             return None
 
 
-        # Biggest, most confident banana
-        def score(d):
+        # Already going for / eating a banana: stay with it while it's
+        # in view, so another banana's flickering label can't pull the
+        # drone back and forth between them
+        if self.state != "SCAN":
+
+            for d, track in seen:
+
+                if track is self.target_track:
+                    return d
+
+
+        # Most rotten banana (by vote), then biggest and most confident
+        def score(pair):
+
+            d, track = pair
 
             x1, y1, x2, y2 = d.box
 
             area = max(1, (x2 - x1) * (y2 - y1))
 
-            return area * d.det_conf
+            return RIPENESS_ORDER.index(track.label), area * d.det_conf
 
-        return max(valid, key=score)
+        d, self.target_track = max(seen, key=score)
+
+        return d
 
 
     # ========================================================
@@ -775,7 +942,7 @@ class FeedingBehaviour:
             self.heading += self.prev_yaw * DEG_PER_RC_S * dt
 
 
-        target = self._choose_target(detections)
+        target = self._choose_target(detections, now, fresh)
 
         self.current_target = target
 
@@ -804,7 +971,7 @@ class FeedingBehaviour:
 
             self.last_target_time = now
 
-            self.last_target_label = target.label.lower()
+            self.last_target_label = self.target_track.label
 
             x1, _, x2, _ = target.box
 

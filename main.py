@@ -169,7 +169,7 @@ def draw_debug_overlay(frame, mode, controller, state, final_cmd, safety_info, f
         target = food.current_target
         lines.append(
             f"HUNGER: {food.hunger:.0f}%   FOOD: {food.state}   "
-            f"TARGET: {target.label if target else 'NONE'}   SIZE: {food.last_box_ratio:.1%}   "
+            f"TARGET: {food.last_target_label if target else 'NONE'}   SIZE: {food.last_box_ratio:.1%}   "
             f"SCARES: {controller.scares}"
         )
     brain = getattr(controller, "brain", controller)

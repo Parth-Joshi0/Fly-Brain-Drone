@@ -174,8 +174,12 @@ No automated test suite yet. To spot-check the classifier on one photo, run `Ban
   switched between `rotten` and `freshripe` from frame to frame, often
   with high confidence. The training images are close-up, well-lit
   photos, unlike the drone's view (farther away, moving, compressed
-  video). Because of this, the drone behaviour now treats **any**
-  banana as food instead of relying on the ripeness label.
+  video). Every banana still counts as food, but to prefer the most
+  rotten one, the drone behaviour takes a majority vote of each
+  banana's label over its last 10 pictures
+  (`NeuralPathways/FoodNeuron/feeding_behaviour.py`). The vote hides
+  occasional wrong frames, but it can't fix a label that's wrong most
+  of the time.
 - **`checkpoints/class_names.json` is missing.** `banana_detector.py` falls
   back to the built-in class list, which does match the training order
   above. Saving `class_names.json` from `train.py` would make this

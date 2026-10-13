@@ -93,7 +93,10 @@ classDiagram
         +update(detections, frame_width, frame_height, yaw_deg, fresh) RCCommand
         +scare() bool
         -_sense(...) Detection
-        -_choose_target(detections) Detection
+        +list~BananaTrack~ tracks
+        +BananaTrack target_track
+        -_match_tracks(detections, now, fresh) list
+        -_choose_target(detections, now, fresh) Detection
         -_keep_in_frame(target, w, h, forward, center_deadzone) RCCommand
         -_update_scan(...) RCCommand
         -_update_approach(...) RCCommand
@@ -112,6 +115,13 @@ classDiagram
         +int fb
         +int ud
         +int yaw
+    }
+
+    class BananaTrack {
+        +tuple box
+        +float last_seen
+        +deque~str~ labels
+        +label str
     }
 
     class FearBrain {
@@ -239,6 +249,7 @@ classDiagram
     _BananaWorker ..> Detection : result
     FeedingBehaviour ..> Detection : reads
     FeedingBehaviour ..> RCCommand : creates
+    FeedingBehaviour *-- "*" BananaTrack : tracks
 
     FearBrain *-- "1" LoomingDetector : looming
     FearBrain *-- "1" FlyBrainController : brain

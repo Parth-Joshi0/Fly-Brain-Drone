@@ -164,7 +164,10 @@ def load_detectors():
     print("Loading banana detector...")
 
     # Full Tello resolution (960px) - sees the banana from further away
-    detector = BananaDetector(detector_img_size=960)
+    detector = BananaDetector(
+        detector_img_size=960,
+        detector_conf_threshold=0.20
+    )
 
     # "Sharp eyes" for scanning / looking while holding still: YOLOv8
     # small instead of nano. Far-away bananas (filling 1% of the picture)

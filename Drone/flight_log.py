@@ -14,7 +14,7 @@ from datetime import datetime
 # so we can see exactly what the drone saw and decided.
 LOG_COLUMNS = [
     "time_s", "mode", "state", "bananas_seen",
-    "label", "det_conf", "cls_conf", "size_pct",
+    "label", "voted_label", "det_conf", "cls_conf", "size_pct",
     "hunger", "lr", "fb", "ud", "yaw", "battery",
     "brain", "escape_dir", "loom_l", "loom_c", "loom_r",
     "escape_level", "wobble_floor", "loom_in_l", "loom_in_r", "hand",
@@ -63,6 +63,7 @@ def flight_log_row(elapsed, flying, behaviour, detections, sent, battery, fear, 
         behaviour.state,
         len(detections),
         target.label if target else "",
+        behaviour.last_target_label if target else "",
         f"{target.det_conf:.2f}" if target else "",
         f"{target.cls_conf:.2f}" if target else "",
         f"{behaviour.last_box_ratio * 100:.1f}" if target else "",
