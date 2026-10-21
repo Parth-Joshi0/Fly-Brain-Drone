@@ -179,7 +179,10 @@ LOOK_TIME = 1.0
 # middle of the picture - small wobbles are ignored.
 CENTER_DEADZONE = 120
 
-VERTICAL_DEADZONE = 100
+# Smaller than the sideways one: every flight log (10-20) has ud < 0
+# all through APPROACH and FEED - the banana sits below the drone, and
+# a 100px deadzone let it settle while still above, then pass over it
+VERTICAL_DEADZONE = 50
 
 # TURN left/right to face it, like a fly steering toward food.
 # (Turning keeps the banana in view without moving the drone; the
@@ -195,6 +198,23 @@ APPROACH_TURN_DEADZONE = 60
 UD_GAIN = 0.08
 
 MAX_UD = 20
+
+# Smallest up/down command once outside the deadzone - the Tello barely
+# moves for single-digit ud
+MIN_UD = 10
+
+# Banana this far (pixels) below the middle: get down to it before
+# closing in - flying forward at 14-15 while descending at ~-10 took
+# the banana out the bottom of the picture and the drone over it
+# (flight 10-20 23:04)
+DESCEND_FIRST_ERROR = 150
+
+DESCEND_FIRST_SPEED = 5
+
+# Banana last seen in the bottom part of the picture (fraction of the
+# height) and now gone: it dropped out the bottom - go down to find it
+# instead of flying on forward over it
+LOST_OUT_BOTTOM = 0.7
 
 # If the drone drifts so close that the banana fills more than
 # this much of the screen, back off a little.
@@ -405,6 +425,10 @@ class FeedingBehaviour:
         self.last_box_ratio = 0.0
         self.last_target_time = 0.0
 
+        # Where the banana's middle was last seen, as a fraction of the
+        # picture height (0 = top) - see LOST_OUT_BOTTOM
+        self.last_target_height = 0.5
+
         # Timers
         self.done_start_time = None
         self.look_start_time = None
@@ -489,6 +513,18 @@ class FeedingBehaviour:
     def _hover(self):
 
         return self._smooth_command(0, 0, 0, 0)
+
+
+    def _descend(self):
+        """Hover, sinking - the banana dropped out the bottom of the
+        picture."""
+
+        return self._smooth_command(0, 0, -MAX_UD, 0)
+
+
+    def _lost_out_bottom(self):
+
+        return self.last_target_height > LOST_OUT_BOTTOM
 
 
     # ========================================================
@@ -662,10 +698,18 @@ class FeedingBehaviour:
 
             ud = clamp(-y_error * UD_GAIN, -MAX_UD, MAX_UD)
 
+            if abs(ud) < MIN_UD:
+                ud = MIN_UD if ud > 0 else -MIN_UD
 
-        # Only fly closer when asked to (approach) - and always back
-        # off if we've drifted into it
+
+        # Only fly closer when asked to (approach) - slowly while the
+        # banana is well below us - and always back off if we've
+        # drifted into it
         fb = forward
+
+        if y_error > DESCEND_FIRST_ERROR:
+
+            fb = min(fb, DESCEND_FIRST_SPEED)
 
         if self.last_box_ratio > TOO_CLOSE_RATIO:
 
@@ -973,9 +1017,11 @@ class FeedingBehaviour:
 
             self.last_target_label = self.target_track.label
 
-            x1, _, x2, _ = target.box
+            x1, y1, x2, y2 = target.box
 
             self.last_target_side = 1 if (x1 + x2) / 2.0 >= frame_width / 2.0 else -1
+
+            self.last_target_height = (y1 + y2) / 2.0 / frame_height
 
             self.last_box_ratio = self._box_ratio(
                 target,
@@ -1131,6 +1177,10 @@ class FeedingBehaviour:
         # stand still most of the time.)
         if not target_visible:
 
+            if self._lost_out_bottom():
+
+                return self._descend()
+
             speed = DASH_SPEED if dashing else self.approach_speed
 
             self.backed_off = max(0.0, self.backed_off - speed * dt)
@@ -1246,7 +1296,12 @@ class FeedingBehaviour:
                 return self._lost_banana(now)
 
 
-            # Blink: hold still, eating pauses.
+            # Blink: hold still (or go down, if it slipped out the
+            # bottom), eating pauses.
+            if self._lost_out_bottom():
+
+                return self._descend()
+
             return self._hover()
 
 

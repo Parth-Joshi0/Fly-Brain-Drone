@@ -59,7 +59,7 @@ from NeuralPathways.ScaredEating.scared_eating_brain import ScaredEatingBrain
 # SAFETY
 # ============================================================
 
-MIN_BATTERY_FOR_FLIGHT = 30
+MIN_BATTERY_FOR_FLIGHT = 5
 
 # Don't take off until the camera has sent a real picture.
 VIDEO_START_TIMEOUT = 10.0

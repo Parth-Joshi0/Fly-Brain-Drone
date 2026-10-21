@@ -95,6 +95,26 @@ MAX_CONSECUTIVE_SIM_FAILURES = 10  # see the SimulatorError retry in main()
 HOVER_BEFORE_EXPLORE_CYCLES = 45  # ~1.5s at 30Hz: "take off, hover briefly,
                                    # THEN begin exploring" (item 1)
 
+# Where the two debug windows open: stacked in a column to the right of
+# PyBullet's 1024px-wide GUI window, scaled up from the 320x240 frames
+# (4:3 kept) so they read on a screen recording.
+DEBUG_WINDOW_X = 1026
+DEBUG_WINDOW_SIZE = (440, 330)
+DEBUG_WINDOW_Y = {"Drone Camera": 30, "Optical Flow": 400}
+_placed_windows = set()
+
+
+def show_debug_window(name, img):
+    """cv2.imshow, but the first call creates the window at its
+    DEBUG_WINDOW_Y slot instead of wherever OpenCV drops it."""
+    if name not in _placed_windows:
+        cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(name, *DEBUG_WINDOW_SIZE)
+        cv2.moveWindow(name, DEBUG_WINDOW_X, DEBUG_WINDOW_Y[name])
+        _placed_windows.add(name)
+    cv2.imshow(name, img)
+
+
 _ACTION_FOR_STATE = {
     "CRUISE": "FORWARD",
     "AVOID_LEFT": "WALL LEFT -> TURN RIGHT",
@@ -231,7 +251,7 @@ class FlowSensor:
             hemifields = signed_hemifield_flow(derotated)
             self.flow["rotation"] = hemifields["rotation"]
             self.flow["translation"] = hemifields["translation"]
-            cv2.imshow("Optical Flow", self.flow_viz.render(derotated))
+            show_debug_window("Optical Flow", self.flow_viz.render(derotated))
         self.flow.update({f"expansion_{side}": value for side, value in expansion.items()})
         self.prev_gray = gray
         return self.flow
@@ -392,7 +412,7 @@ def main():
                     sim.update_debug_view(state["position"], state["yaw_degrees"])
                     sim.update_test_obstacles(state["position"], state["yaw_degrees"], decision_dt)
 
-                    cv2.imshow("Drone Camera", draw_debug_overlay(
+                    show_debug_window("Drone Camera", draw_debug_overlay(
                         frame, mode, autonomous, state, final_cmd, safety_info, flow))
                     cv2.waitKey(1)
 
