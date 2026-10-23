@@ -188,16 +188,14 @@ def parse_args():
 
     args = parser.parse_args()
 
-    if args.finetuned:
+    # Only the nano model is required; a missing small one falls back to
+    # the COCO small model (see load_detectors)
+    if args.finetuned and not (FINETUNED_DIR / "banana_n.pt").exists():
 
-        for name in ("banana_n.pt", "banana_s.pt"):
-
-            if not (FINETUNED_DIR / name).exists():
-
-                parser.error(
-                    f"--finetuned: {FINETUNED_DIR / name} not found - run "
-                    "BananaModel/finetune/train_detector.py first"
-                )
+        parser.error(
+            f"--finetuned: {FINETUNED_DIR / 'banana_n.pt'} not found - run "
+            "BananaModel/finetune/train_detector.py first"
+        )
 
     if args.finetuned_classifier and not FINETUNED_CLASSIFIER.exists():
 
@@ -229,12 +227,17 @@ def load_detectors(finetuned, finetuned_classifier):
 
     print("Ripeness classifier:", classifier_weights.name)
 
+    nano_weights = ROOT / "BananaModel" / "yolov8n.pt"
+    small_weights = ROOT / "BananaModel" / "yolov8s.pt"
+
     if finetuned:
+
         nano_weights = FINETUNED_DIR / "banana_n.pt"
-        small_weights = FINETUNED_DIR / "banana_s.pt"
-    else:
-        nano_weights = ROOT / "BananaModel" / "yolov8n.pt"
-        small_weights = ROOT / "BananaModel" / "yolov8s.pt"
+
+        if (FINETUNED_DIR / "banana_s.pt").exists():
+            small_weights = FINETUNED_DIR / "banana_s.pt"
+        else:
+            print("No fine-tuned small model - sharp eyes use the COCO yolov8s.pt")
 
     print("Loading banana detector...", nano_weights.name)
 
