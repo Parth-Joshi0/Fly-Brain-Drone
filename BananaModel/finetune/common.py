@@ -9,8 +9,11 @@ One folder per flight in finetune_data/:
                                  empty = no banana in the picture
         rejected/                pictures dropped in review.py
         reviewed.txt             names of pictures checked in review.py
+        ripeness.json            {picture: {label line: ripeness}} from
+                                 label_ripeness.py
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -24,9 +27,17 @@ COCO_WEIGHTS = {
     "s": ROOT / "BananaModel" / "yolov8s.pt",
 }
 
+CLASSIFIER_WEIGHTS = ROOT / "BananaModel" / "checkpoints" / "best_banana_model.pth"
+
 # Same as Drone/fly_tello.py's load_detectors()
 FLIGHT_IMG_SIZE = 960
 FLIGHT_CONF = {"n": 0.20, "s": 0.30}
+
+# The classifier's outputs, in order (BananaModel/README.md)
+RIPENESS_CLASSES = ["freshripe", "freshunripe", "overripe", "ripe", "rotten", "unripe"]
+
+# label_ripeness.py's mark for a box too unclear to call - not trained on
+SKIP = "skip"
 
 
 def flight_dirs(names=None):
@@ -48,21 +59,25 @@ def label_path(image_path):
     return image_path.parent.parent / "labels" / (image_path.stem + ".txt")
 
 
-def read_boxes(image_path, width, height):
-    """Pixel (x1, y1, x2, y2) boxes from an image's label file."""
+def read_label_lines(image_path):
     path = label_path(image_path)
     if not path.exists():
         return []
-    boxes = []
-    for line in path.read_text().split("\n"):
-        if not line.strip():
-            continue
-        _, cx, cy, w, h = map(float, line.split())
-        boxes.append((
-            (cx - w / 2) * width, (cy - h / 2) * height,
-            (cx + w / 2) * width, (cy + h / 2) * height,
-        ))
-    return boxes
+    return [line.strip() for line in path.read_text().split("\n") if line.strip()]
+
+
+def line_to_box(line, width, height):
+    """Pixel (x1, y1, x2, y2) box from one "0 cx cy w h" label line."""
+    _, cx, cy, w, h = map(float, line.split())
+    return (
+        (cx - w / 2) * width, (cy - h / 2) * height,
+        (cx + w / 2) * width, (cy + h / 2) * height,
+    )
+
+
+def read_boxes(image_path, width, height):
+    """Pixel (x1, y1, x2, y2) boxes from an image's label file."""
+    return [line_to_box(line, width, height) for line in read_label_lines(image_path)]
 
 
 def write_boxes(image_path, boxes, width, height):
@@ -80,6 +95,27 @@ def write_boxes(image_path, boxes, width, height):
 def reviewed_names(flight_dir):
     path = flight_dir / "reviewed.txt"
     return set(path.read_text().split()) if path.exists() else set()
+
+
+def read_ripeness(flight_dir):
+    """{picture name: {label line: ripeness}}. Keyed by the box's label
+    line, so a box moved in review.py afterwards counts as unlabelled."""
+    path = flight_dir / "ripeness.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def write_ripeness(flight_dir, ripeness):
+    (flight_dir / "ripeness.json").write_text(json.dumps(ripeness, indent=1, sort_keys=True))
+
+
+def classifier_crop(frame, box, padding_ratio=0.08):
+    """The part of the picture the classifier sees for a box - cut the
+    same way as BananaDetector.detect() (box + 8% each side)."""
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = map(int, box)
+    pad_x = int((x2 - x1) * padding_ratio)
+    pad_y = int((y2 - y1) * padding_ratio)
+    return frame[max(0, y1 - pad_y):min(h, y2 + pad_y), max(0, x1 - pad_x):min(w, x2 + pad_x)]
 
 
 def iou(a, b):

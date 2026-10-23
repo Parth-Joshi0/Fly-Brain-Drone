@@ -103,6 +103,50 @@ python Drone/fly_tello.py --fly --finetuned [--scared ...]
 Without `--finetuned` it's the COCO detectors as before, so going back
 is just dropping the flag.
 
+## Ripeness classifier
+
+Same pictures and boxes, after review.py. The classifier was trained on
+close-up, well-lit photos and calls most bananas on the Tello `rotten`.
+
+**Label each box's ripeness**, one flight at a time:
+
+```
+python BananaModel/finetune/label_ripeness.py flight_<time>
+```
+
+| | |
+|---|---|
+| 1-6 | ripeness (listed on screen), next box |
+| space | take the suggestion - what you called the same banana in the picture before |
+| s | skip - can't tell, not trained on |
+| b | back |
+| q | quit - saved as you go, starts where you left off |
+
+Label what the banana really is, not what the blurry picture makes it
+look like. Labels go in `ripeness.json` in the flight's folder; a box
+changed in review.py afterwards loses its label.
+
+**Train** (about a minute):
+
+```
+python BananaModel/finetune/train_classifier.py --val flight_<held-out time>
+```
+
+Prints the held-out flight's score before and after, with which
+ripeness it picked for which. Keep it only if "after" is better.
+Writes `BananaModel/finetuned/banana_classifier.pth`.
+
+**Fly with it** (on its own or with `--finetuned`):
+
+```
+python Drone/fly_tello.py --fly --finetuned --finetuned-classifier
+```
+
+Only ripeness levels with flight examples get retrained - with just
+yellow and brown bananas, it will rarely say `unripe` afterwards
+(a mostly green peel is still called `unripe` by the colour check in
+`banana_detector.py`).
+
 ## Notes
 
 - **Why COCO's 80 classes, not a new 1-class model:** a new model's

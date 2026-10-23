@@ -30,8 +30,9 @@ Save clean camera pictures (2 per second) for fine-tuning the banana
 detector - see BananaModel/finetune/README.md:
     python Drone/fly_tello.py --fly --save-frames
 
-Fly with the fine-tuned banana detectors instead of the COCO ones:
-    python Drone/fly_tello.py --fly --finetuned
+Fly with the fine-tuned banana detectors instead of the COCO ones,
+and/or the fine-tuned ripeness classifier:
+    python Drone/fly_tello.py --fly --finetuned --finetuned-classifier
 
 Keys:
     q = land and quit
@@ -121,6 +122,9 @@ FRAMES_DIR = ROOT / "Drone" / "flight_frames"
 # --finetuned: written by BananaModel/finetune/train_detector.py
 FINETUNED_DIR = ROOT / "BananaModel" / "finetuned"
 
+# --finetuned-classifier: written by BananaModel/finetune/train_classifier.py
+FINETUNED_CLASSIFIER = FINETUNED_DIR / "banana_classifier.pth"
+
 
 # ============================================================
 # SETUP
@@ -175,6 +179,13 @@ def parse_args():
              "instead of the COCO ones"
     )
 
+    parser.add_argument(
+        "--finetuned-classifier",
+        action="store_true",
+        help="use the fine-tuned ripeness classifier in BananaModel/finetuned/ "
+             "instead of checkpoints/best_banana_model.pth"
+    )
+
     args = parser.parse_args()
 
     if args.finetuned:
@@ -188,6 +199,13 @@ def parse_args():
                     "BananaModel/finetune/train_detector.py first"
                 )
 
+    if args.finetuned_classifier and not FINETUNED_CLASSIFIER.exists():
+
+        parser.error(
+            f"--finetuned-classifier: {FINETUNED_CLASSIFIER} not found - run "
+            "BananaModel/finetune/train_classifier.py first"
+        )
+
     # Checked before loading anything / connecting, so a wrong flag
     # doesn't cost a battery
     if args.show_brain and not (args.scared or args.stabilize):
@@ -200,9 +218,16 @@ def parse_args():
     return args
 
 
-def load_detectors(finetuned):
+def load_detectors(finetuned, finetuned_classifier):
     """The banana detector used every picture, and a slower "sharp eyes"
     one used only while holding still."""
+
+    if finetuned_classifier:
+        classifier_weights = FINETUNED_CLASSIFIER
+    else:
+        classifier_weights = ROOT / "BananaModel" / "checkpoints" / "best_banana_model.pth"
+
+    print("Ripeness classifier:", classifier_weights.name)
 
     if finetuned:
         nano_weights = FINETUNED_DIR / "banana_n.pt"
@@ -217,7 +242,8 @@ def load_detectors(finetuned):
     detector = BananaDetector(
         detector_img_size=960,
         detector_conf_threshold=0.20,
-        yolo_weights=str(nano_weights)
+        yolo_weights=str(nano_weights),
+        checkpoint_path=str(classifier_weights)
     )
 
     # "Sharp eyes" for scanning / looking while holding still: YOLOv8
@@ -231,7 +257,8 @@ def load_detectors(finetuned):
     sharp_detector = BananaDetector(
         detector_img_size=960,
         detector_conf_threshold=0.30,
-        yolo_weights=str(small_weights)
+        yolo_weights=str(small_weights),
+        checkpoint_path=str(classifier_weights)
     )
 
     return detector, sharp_detector
@@ -426,7 +453,7 @@ def main():
     # The loop-rate tuning was done on one laptop - say which one this is
     print("Machine:", platform.node(), platform.machine(), platform.mac_ver()[0])
 
-    detector, sharp_detector = load_detectors(args.finetuned)
+    detector, sharp_detector = load_detectors(args.finetuned, args.finetuned_classifier)
 
     tello, battery = connect_tello()
 
