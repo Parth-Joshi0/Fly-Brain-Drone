@@ -20,7 +20,15 @@ import os
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-COCO_BANANA_CLASS_ID = 46  # "banana" class index in COCO
+def banana_class_id(yolo):
+    """The "banana" class index of a loaded YOLO model, read from its own
+    class names rather than assumed - 46 in COCO (and in our fine-tuned
+    weights, see finetune/train_detector.py)."""
+    for class_id, name in yolo.names.items():
+        if name == 'banana':
+            return class_id
+    raise ValueError(f"YOLO model has no 'banana' class: {yolo.names}")
+
 
 # The ripeness classifier barely looks at colour: a yellow banana photo
 # recoloured green still scores 100% freshripe, and on the Tello's dark,
@@ -89,6 +97,7 @@ class BananaDetector:
         ])
 
         self.detector = YOLO(yolo_weights)  # auto-downloads on first run
+        self.banana_class_id = banana_class_id(self.detector)
 
     def _load_class_names(self, class_names_path):
         try:
@@ -119,7 +128,7 @@ class BananaDetector:
             frame,
             conf=self.detector_conf_threshold,
             imgsz=self.detector_img_size,
-            classes=[COCO_BANANA_CLASS_ID],
+            classes=[self.banana_class_id],
             verbose=False
         )
 

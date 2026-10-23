@@ -23,7 +23,7 @@ list of Detection(box, det_conf, label, cls_conf)
 
 | Stage | Model | Job | Weights |
 |---|---|---|---|
-| 1. Locate | YOLOv8n (Ultralytics) | Find bananas (COCO class 46) | `yolov8n.pt`, pretrained on COCO, not retrained |
+| 1. Locate | YOLOv8n (Ultralytics) | Find bananas (COCO class 46) | `yolov8n.pt`, pretrained on COCO - or fine-tuned on our flight pictures, see [finetune/](finetune/README.md) |
 | 2. Classify | MobileNetV2 (torchvision) | Pick 1 of 6 ripeness classes | `checkpoints/best_banana_model.pth`, trained by us |
 
 YOLO is only used to **find** the banana; our trained classifier

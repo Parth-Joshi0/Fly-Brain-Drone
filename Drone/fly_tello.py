@@ -26,6 +26,13 @@ Live fly-brain diagram next to the video (NeuralPathways/BrainView -
 needs --scared and/or --stabilize, otherwise no fly brain runs):
     python Drone/fly_tello.py --fly --scared --show-brain
 
+Save clean camera pictures (2 per second) for fine-tuning the banana
+detector - see BananaModel/finetune/README.md:
+    python Drone/fly_tello.py --fly --save-frames
+
+Fly with the fine-tuned banana detectors instead of the COCO ones:
+    python Drone/fly_tello.py --fly --finetuned
+
 Keys:
     q = land and quit
     h = mark "I'm waving my hand NOW" in the flight log (for tuning --scared)
@@ -38,6 +45,7 @@ import sys
 import time
 import argparse
 import platform
+from datetime import datetime
 from pathlib import Path
 
 # Repo root on the path, so BananaModel/, NeuralPathways/ etc. import
@@ -107,6 +115,12 @@ LOG_DIR = os.path.join(
     "flight_logs"
 )
 
+# --save-frames writes one folder of pictures per run here
+FRAMES_DIR = ROOT / "Drone" / "flight_frames"
+
+# --finetuned: written by BananaModel/finetune/train_detector.py
+FINETUNED_DIR = ROOT / "BananaModel" / "finetuned"
+
 
 # ============================================================
 # SETUP
@@ -143,7 +157,36 @@ def parse_args():
              "next to the video - needs --scared and/or --stabilize"
     )
 
+    parser.add_argument(
+        "--save-frames",
+        type=float,
+        nargs="?",
+        const=2.0,
+        default=None,
+        metavar="PER_SECOND",
+        help="save clean camera pictures for fine-tuning the banana "
+             "detector (default 2 per second)"
+    )
+
+    parser.add_argument(
+        "--finetuned",
+        action="store_true",
+        help="use the fine-tuned banana detectors in BananaModel/finetuned/ "
+             "instead of the COCO ones"
+    )
+
     args = parser.parse_args()
+
+    if args.finetuned:
+
+        for name in ("banana_n.pt", "banana_s.pt"):
+
+            if not (FINETUNED_DIR / name).exists():
+
+                parser.error(
+                    f"--finetuned: {FINETUNED_DIR / name} not found - run "
+                    "BananaModel/finetune/train_detector.py first"
+                )
 
     # Checked before loading anything / connecting, so a wrong flag
     # doesn't cost a battery
@@ -157,16 +200,24 @@ def parse_args():
     return args
 
 
-def load_detectors():
+def load_detectors(finetuned):
     """The banana detector used every picture, and a slower "sharp eyes"
     one used only while holding still."""
 
-    print("Loading banana detector...")
+    if finetuned:
+        nano_weights = FINETUNED_DIR / "banana_n.pt"
+        small_weights = FINETUNED_DIR / "banana_s.pt"
+    else:
+        nano_weights = ROOT / "BananaModel" / "yolov8n.pt"
+        small_weights = ROOT / "BananaModel" / "yolov8s.pt"
+
+    print("Loading banana detector...", nano_weights.name)
 
     # Full Tello resolution (960px) - sees the banana from further away
     detector = BananaDetector(
         detector_img_size=960,
-        detector_conf_threshold=0.20
+        detector_conf_threshold=0.20,
+        yolo_weights=str(nano_weights)
     )
 
     # "Sharp eyes" for scanning / looking while holding still: YOLOv8
@@ -175,12 +226,12 @@ def load_detectors():
     # bar, 20-24/24 at 0.5-1% with no wrong boxes. 2x slower, so only
     # used while still - nano keeps the loop fast for catching hands.
     # Downloads itself the first time if missing (needs internet).
-    print("Loading sharp-eyes banana detector...")
+    print("Loading sharp-eyes banana detector...", small_weights.name)
 
     sharp_detector = BananaDetector(
         detector_img_size=960,
         detector_conf_threshold=0.30,
-        yolo_weights=str(ROOT / "BananaModel" / "yolov8s.pt")
+        yolo_weights=str(small_weights)
     )
 
     return detector, sharp_detector
@@ -250,6 +301,43 @@ def take_off(args, tello, battery):
     tello.takeoff()
 
     return True
+
+
+# ============================================================
+# FRAME SAVING
+# ============================================================
+
+class FrameSaver:
+    """--save-frames: writes the clean camera picture (no boxes / HUD)
+    every 1/per_second seconds, for BananaModel/finetune/."""
+
+    def __init__(self, per_second):
+
+        self.interval = 1.0 / per_second
+
+        self.folder = FRAMES_DIR / datetime.now().strftime("flight_%Y%m%d_%H%M%S")
+
+        self.folder.mkdir(parents=True, exist_ok=True)
+
+        self.count = 0
+
+        self.last_save_time = 0.0
+
+        print("Saving frames to:", self.folder)
+
+    def maybe_save(self, frame_bgr):
+
+        now = time.time()
+
+        if now - self.last_save_time < self.interval:
+            return
+
+        self.last_save_time = now
+
+        cv2.imwrite(str(self.folder / f"frame_{self.count:05d}.jpg"), frame_bgr,
+                    [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+        self.count += 1
 
 
 # ============================================================
@@ -338,7 +426,7 @@ def main():
     # The loop-rate tuning was done on one laptop - say which one this is
     print("Machine:", platform.node(), platform.machine(), platform.mac_ver()[0])
 
-    detector, sharp_detector = load_detectors()
+    detector, sharp_detector = load_detectors(args.finetuned)
 
     tello, battery = connect_tello()
 
@@ -351,6 +439,8 @@ def main():
     stats = LoopStats()
 
     log_file, log_writer = open_flight_log(LOG_DIR)
+
+    frame_saver = FrameSaver(args.save_frames) if args.save_frames else None
 
     start_time = time.time()
 
@@ -450,6 +540,10 @@ def main():
             # Tello gives RGB, OpenCV uses BGR.
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
+            # Before anything is drawn on it
+            if frame_saver is not None:
+                frame_saver.maybe_save(frame)
+
             # Brain: picture in, movement out (on the clean picture -
             # see scared_eating_brain.py). The compass heading lets the
             # room scan count its turns.
@@ -503,6 +597,9 @@ def main():
         log_file.close()
 
         stats.print_summary()
+
+        if frame_saver is not None:
+            print(f"Saved {frame_saver.count} frames to {frame_saver.folder}")
 
         if brain is not None:
 

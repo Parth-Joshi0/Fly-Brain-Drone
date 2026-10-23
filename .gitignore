@@ -17,6 +17,13 @@ BananaModel/yolov8s.pt
 # BananaModel training images (downloaded separately)
 dataset
 
+# Banana detector fine-tuning (BananaModel/finetune/): saved flight
+# pictures, their labels, the teacher model and the trained weights
+Drone/flight_frames/
+BananaModel/finetune_data/
+BananaModel/finetuned/
+BananaModel/yolo11x.pt
+
 # Runtime logs
 flybrain_spikes.log
 
