@@ -35,7 +35,7 @@ Not flown yet in this form: the gain (`DNG02_TELLO_YAW_GAIN = 0.3`) is set to ma
 
 ## Things the fly brain ignores, on purpose
 
-- **Its own movement.** Flying forward, turning or going up/down makes the whole scene loom, as strongly as a real hand. Like a real fly (efference copy), looming is ignored while the drone moves on purpose and for 0.6 s after — so waves only count while it's eating or waiting. See `SELF_MOTION_RC` in `EscapeNeuron/fear_brain.py`.
+- **Its own movement.** Flying forward, turning or going up/down makes the whole scene loom, as strongly as a real hand. Like a real fly (efference copy), looming is ignored while the drone moves on purpose and for 0.6 s after — so waves only count while it's eating or waiting. Small turns and side/up/down nudges (the centring moves while eating) don't count. See `SELF_MOTION_RC` and `SELF_MOTION_SLIDE_RC` in `EscapeNeuron/fear_brain.py`.
 - **The bottom third of the picture** — feet and things on the floor. See `IGNORE_BOTTOM_FRACTION`.
 
 ## Needs

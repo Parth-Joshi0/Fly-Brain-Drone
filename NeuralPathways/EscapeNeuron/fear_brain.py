@@ -78,10 +78,21 @@ REARM_LEVEL = 0.3
 # real threat - in flight 16:44 all 4 scares came from the drone's own
 # movement (escape level up to 1.0, as strong as a real hand wave).
 # Real flies ignore what their eyes see during their own deliberate
-# movements; so do we: while any rc command is bigger than this, and
+# movements; so do we: while the fb rc command is bigger than this, and
 # for SELF_MOTION_HOLD after (the looming detector smooths over a few
 # pictures), scares are ignored and the trigger disarmed.
 SELF_MOTION_RC = 8
+
+# ...but only flying forward/back really makes the scene EXPAND. Turns
+# are taken out by the looming detector (it uses the drone's own
+# orientation) and sliding sideways/up/down just shifts the scene, so
+# small lr/ud/yaw moves up to this don't count. Eating keeps making
+# small centring moves (yaw ~10-20, ud ~10) - with the old single
+# limit of 8 they counted as self-motion, so a hand held at the drone
+# for over a second (escape level 1.0) never fired (flights 10-24
+# 13:29-13:37). Small moves in SCAN only reached 0.6 in 2 of ~1100
+# pictures across all logged flights, so they don't fake a loom.
+SELF_MOTION_SLIDE_RC = 20
 
 SELF_MOTION_HOLD = 0.6
 
@@ -396,7 +407,7 @@ class FearBrain:
 
         self.drone.target_vy = -lr / RC_SPEED_SCALE
 
-        if max(abs(lr), abs(fb), abs(ud), abs(yaw)) > SELF_MOTION_RC:
+        if abs(fb) > SELF_MOTION_RC or max(abs(lr), abs(ud), abs(yaw)) > SELF_MOTION_SLIDE_RC:
 
             self.last_self_motion = time.time()
 

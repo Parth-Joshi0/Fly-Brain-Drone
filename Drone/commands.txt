@@ -2,5 +2,6 @@ python Drone/fly_tello.py --scared --stabilize --show-brain --show-flow
 
 python Drone/FlightTests/tello_battery_test.py
 
-python Drone/fly_tello.py --scared --fly --stabilize --show-brain 
+python Drone/fly_tello.py --scared --fly --finetuned --finetuned-classifier --stabilize --show-brain
 
+ 

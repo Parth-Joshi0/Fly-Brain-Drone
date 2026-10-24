@@ -38,7 +38,7 @@ the camera (can I see my food?), like a fly looking before it returns.
 Any banana is food, but the most rotten one in view is preferred (real
 flies are drawn to fermenting fruit). The ripeness label flickers from
 picture to picture on the drone, so each banana's label is a vote over
-its last 10 pictures, and once the drone has picked a banana it sticks
+its last 5 pictures, and once the drone has picked a banana it sticks
 with it. Hunger only goes down while the banana is
 actually in view. While eating the drone holds still, only making
 small moves to keep the banana in the picture.
@@ -78,7 +78,7 @@ RIPENESS_ORDER = [
 # picture in flight (training photos are close-up and well lit, the
 # drone's view isn't) - so a banana's label is the most common one over
 # its last LABEL_HISTORY pictures
-LABEL_HISTORY = 10
+LABEL_HISTORY = 5
 
 # Boxes in consecutive pictures overlapping at least this much (IoU)
 # are the same banana
@@ -638,7 +638,10 @@ class FeedingBehaviour:
 
             area = max(1, (x2 - x1) * (y2 - y1))
 
-            return RIPENESS_ORDER.index(track.label), area * d.det_conf
+            # (a banana with a full vote beats one still being judged)
+            ready = len(track.labels) >= LABEL_HISTORY
+
+            return ready, RIPENESS_ORDER.index(track.label), area * d.det_conf
 
         d, self.target_track = max(seen, key=score)
 
@@ -1335,7 +1338,12 @@ class FeedingBehaviour:
 
     def _update_scan(self, now, target, frame_width, frame_height):
 
-        if target is not None and self._banana_confirmed():
+        # (wait for its full vote, so one flickery picture can't pick it)
+        if (
+            target is not None
+            and self._banana_confirmed()
+            and len(self.target_track.labels) >= LABEL_HISTORY
+        ):
 
             # Found one - fly to it (from next frame)
             self._start_approach(now, True, after_scare=False)
