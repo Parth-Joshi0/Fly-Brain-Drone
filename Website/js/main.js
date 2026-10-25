@@ -12,7 +12,7 @@ const PAGES = [
   { file: "index.html", label: "Overview", title: "Overview" },
   { file: "banana.html", label: "Banana CNN", title: "Banana recognition network" },
   { file: "brain.html", label: "Fly Brain", title: "Fly-brain neural pathways" },
-  { file: "sdk.html", label: "Tello SDK", title: "DJI Tello SDK integration" },
+  { file: "sdk.html", label: "Drone", title: "The drone" },
   { file: "sim.html", label: "Simulation", title: "PyBullet simulation" },
 ];
 

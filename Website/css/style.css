@@ -2,7 +2,7 @@
    FuityFly whitepaper: shared styles
    1. Tokens       4. Nav & footer     7. Diagrams (SVG)
    2. Base         5. Hero
-   3. Layout       6. Content blocks
+   3. Layout       6. Content blocks   8. Figures with images and controls
    ========================================================= */
 
 /* ---------- 1. Tokens ---------- */
@@ -163,3 +163,46 @@ sup.fn a { text-decoration: none; font-size: 11px; }
 .dg .dash { stroke-dasharray: 4 4; }
 .dg .fill-ink { fill: var(--ink-3); }
 .dg .fill-strong { fill: var(--ink); }
+
+/* ---------- 8. Figures with images and controls ---------- */
+/* Pipeline sample: .pipe > .pipe-step + .pipe-arrow */
+.pipe { display: grid; grid-template-columns: minmax(0, 2.2fr) auto minmax(0, 1fr) auto minmax(0, 1.6fr); align-items: center; gap: 10px; }
+.pipe-step img { display: block; width: 100%; border-radius: 4px; }
+.pipe-step p { font-size: 12.5px; color: var(--ink-3); margin: 8px 0 0; line-height: 1.4; }
+.pipe-step p b { display: block; color: var(--ink); font-family: var(--mono); font-size: 12px; }
+.pipe-arrow { font: 20px var(--mono); color: var(--ink-3); }
+.probs { display: grid; gap: 5px; }
+.prob { display: grid; grid-template-columns: 84px 1fr 44px; align-items: center; gap: 6px; font: 11px var(--mono); color: var(--ink-3); }
+.prob i { display: block; height: 9px; min-width: 1px; background: var(--ink-3); border-radius: 2px; }
+.prob em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
+.prob.top { color: var(--ink); font-weight: 600; }
+.prob.top i { background: var(--ink); }
+@media (max-width: 640px) {
+  .pipe { grid-template-columns: minmax(0, 1fr); }
+  .pipe-arrow { transform: rotate(90deg); justify-self: center; }
+  .pipe-crop img { max-width: 160px; }
+}
+
+.rot-row { display: flex; justify-content: center; gap: 28px; flex-wrap: wrap; }
+.rot-row div { text-align: center; }
+.rot-row img { display: block; width: 120px; height: 120px; margin: 14px; }
+.rot-row span { font: 12px var(--mono); color: var(--ink-3); }
+
+/* Interactive: .demo > .demo-controls + svg + .demo-out */
+.demo-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; margin-bottom: 16px; }
+.demo-controls label { display: block; font: 12px var(--mono); color: var(--ink-3); }
+.demo-controls label b { color: var(--ink); font-weight: 600; float: right; font-variant-numeric: tabular-nums; }
+.demo-controls input[type=range] { width: 100%; accent-color: var(--ink); }
+.demo-controls .check { display: flex; align-items: center; gap: 8px; }
+.demo-out { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 16px; }
+.demo-out div { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; }
+.demo-out b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.demo-out span { font-size: 12.5px; color: var(--ink-3); }
+.dg .cell { fill: var(--bg); stroke: var(--ink-3); stroke-width: 1.2; transition: fill-opacity .15s; }
+.dg .cell-on { fill: var(--ink); stroke: none; }
+
+/* Confusion matrix: .table-wrap.cm, each td sets --a (0..1) for its shade */
+.cm td { background: rgb(17 17 17 / calc(var(--a) * .85)); }
+.cm td[style*="--a:0.00"] { color: var(--ink-3); }
+.cm td.dark { color: var(--bg); font-weight: 600; }
+.cm th { font-weight: 500; }

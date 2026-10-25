@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PyBullet Simulation</title>
-<meta name="description" content="FuityFly's PyBullet simulator: rigid-body quadcopter, PID flight stack, rendered camera and obstacle course.">
+<meta name="description" content="FuityFly's PyBullet simulator: why we built it, its two clocks, the body, eyes and world it simulates, and its limits.">
 <meta property="og:title" content="FuityFly · PyBullet Simulation">
-<meta property="og:description" content="A 240 Hz physics sandbox with a cascaded PID flight controller, used to develop the fly-brain controller before real flight.">
+<meta property="og:description" content="A PyBullet sandbox with a 240 Hz physics clock and a 30 Hz decision clock, used to test the fly brain before real flight.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
@@ -21,209 +21,118 @@
 <main class="page">
   <header class="hero">
     <p class="eyebrow">Part 04 · Simulation</p>
-    <h1>A physics sandbox for a fly brain</h1>
-    <p class="lede">Before a spiking circuit got anywhere near a real propeller, it flew in PyBullet, over and over. This page describes the simulated drone, the flight controller we wrote for it, and the obstacle course built for optic flow.</p>
+    <h1>The simulator</h1>
     <div class="byline">
       <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
-      <span class="meta">simulation/ · interfaces/pybullet_drone.py</span>
+      <span class="meta">Simulator/</span>
     </div>
   </header>
 
   <aside class="toc" id="toc"></aside>
 
   <section id="why">
-    <h2><span class="sec">4.1</span>Why simulate?</h2>
-    <p>Tuning a spiking controller means many failures: escapes that fire during ordinary cruising, dodges into walls, oscillating turns. In simulation each failure costs a keypress (<kbd>R</kbd> resets). A simulator also gives what the Tello cannot: <strong>ground-truth position and obstacle distances</strong>, deterministic scenarios, and headless batch runs.</p>
-    <p>We use PyBullet<sup class="fn"><a href="#ref-pybullet">[1]</a></sup>, running rigid-body physics at 240 Hz with the drone's decision loop at 30 Hz, once every 8 physics steps. That matches the real drone's control rate.</p>
+    <h2><span class="sec">4.1</span>Why do we need the Simulator?</h2>
+    <p>We used PyBullet to simulate the technology before we ever tested it with the drone for 3 main reasons. Firstly, and most importantly, drones are really expensive, and we are 3 university students that lack the funds for a second drone. Now, this is the main reason that if a plane or car is to be tested, it will go through several stages where each part is simulated under load so that real money and material does not have to be wasted. Now the second reason is that running simulations are much more time efficient when getting the technology to work. For example, if we were to test the escape neuron, DNp06, we would have to set up the drone, and lunge at it every time we wanted to test small code changes. Having the simulation allows us to test these small code changes without having to use the drone, which brings me into the last reason: there is only one drone between the three of us. Due to there only being one drone, if for example, someone made a change to the optical flow and wanted to test it, but another person is testing another part of the software that they changed, this will create a queue that will slow down the development. In summary, the simulations allow us repetition, no queue to test, the ability to break things for free, and most importantly confidence in testing it with the real drone.</p>
   </section>
 
-  <section id="body">
-    <h2><span class="sec">4.2</span>The drone body</h2>
-    <p>The simulated quadcopter is deliberately simple: <strong>one 1 kg box</strong> (0.30 × 0.30 × 0.08 m) with linear and angular damping of 0.3. Thrust and torques are applied directly to the body's centre of mass.</p>
-    <div class="note">
-      <p><strong>Design decision · no rotor links.</strong> An earlier version modelled the four rotors as separate linked bodies, which destabilised the physics solver. We are testing the <em>brain</em>, not rotor aerodynamics, so a single rigid body with applied force and torque gives the right flight behaviour with none of that instability.</p>
-    </div>
+  <section id="framework">
+    <h2><span class="sec">4.2</span>Framework (PyBullet)</h2>
+    <p>As previously mentioned, we are using the framework PyBullet for our simulation. PyBullet is an open-source Python library that is used for physics simulations. In our case, it allows us to track and test masses, forces, torques, collisions, etc., and do this all for free. Along with it being free, we chose to use it over other physics engines because the rest of our code is written in python, so it made connecting what we wanted to test to the simulation a lot easier. PyBullet not only allows us to simulate physics, but also allows us to render in a camera and respond to keyboard/mouse events. With the camera rendering, we are able to feed what the camera sees into the other models that we created, to test. So, for example, if we wanted to test optical flow, we would feed the camera into the optical flow model and then move objects towards the camera to see if optical flow is really working.</p>
   </section>
 
-  <section id="fc">
-    <h2><span class="sec">4.3</span>Flight controller: a PID cascade</h2>
-    <p>The Tello's firmware stabilises itself. In simulation we had to write that layer ourselves. We used the same shape a real flight controller uses:</p>
+  <section id="clocks">
+    <h2><span class="sec">4.3</span>The Two Clocks</h2>
+    <p>Now we are going to get into the technical nitty-gritty. The drone runs with 2 clocks, a physics clock and a decision clock. The decision clock runs at 30 Hz (33 ms), measures how the picture changed, and based on that chooses what it wants to do. Once it makes a decision, it sets a target (forward speed, sideways speed, spin rate and climb direction) for what to do in that situation, such as “move to the left at 1 m/s”. The physics clock on the drone deals with the interactions and collisions and runs at 240 Hz, which is 8 ticks for every decision tick. On each of these ticks, the drone checks for collisions then works toward the target through a chain of corrections. The speed error becomes wanted lean, the lean error becomes twist, and the altitude error becomes push. Right before the speed error becomes a lean, the drone also runs a safety net that checks how close the nearest obstacle is. If something is too close, the safety net overrides the target, either by stopping the drone from going forward or by making it back away if the obstacle is really close, so it can veto any command no matter where it came from. Then the physics engine steps the world forward once. Since the safety net runs on every physics tick and not just every decision tick, it can react within 4 ms and not 33.</p>
+  </section>
+
+  <section id="what">
+    <h2><span class="sec">4.4</span>What are we simulating?</h2>
+
     <figure>
       <div class="fig-body">
-        <svg class="dg" viewBox="0 0 900 240" role="img" aria-label="PID cascade: velocity to tilt to torque, altitude to thrust, yaw rate to torque">
-          <defs><marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
-          <text x="80" y="22" text-anchor="middle" class="t-sm">COMMAND</text>
-          <text x="310" y="22" text-anchor="middle" class="t-sm">OUTER LOOP</text>
-          <text x="540" y="22" text-anchor="middle" class="t-sm">INNER LOOP</text>
-          <text x="800" y="22" text-anchor="middle" class="t-sm">PHYSICS</text>
+        <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Simulator loop: the world is seen by the eye, the picture goes to the brain on the 30 Hz decision clock, the brain sets a target for the body on the 240 Hz physics clock, and the body moves through the world">
+          <defs><marker id="w1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
 
-          <rect class="box" x="10" y="40" width="140" height="44" rx="5"/><text x="80" y="67" text-anchor="middle" font-size="12.5">target v (m/s)</text>
-          <rect class="box-soft" x="220" y="40" width="180" height="44" rx="5"/><text x="310" y="60" text-anchor="middle" font-size="12.5">velocity → tilt</text><text x="310" y="76" text-anchor="middle" class="t-sm">Kp 0.18 · cap 0.45 rad</text>
-          <rect class="box-soft" x="450" y="40" width="180" height="44" rx="5"/><text x="540" y="60" text-anchor="middle" font-size="12.5">tilt → torque</text><text x="540" y="76" text-anchor="middle" class="t-sm">Kp 0.09 · Kd 0.025</text>
+          <rect class="box-soft" x="20" y="104" width="170" height="104" rx="6"/>
+          <text x="105" y="128" text-anchor="middle" font-size="13" font-weight="600">World</text>
+          <text x="105" y="148" text-anchor="middle" class="t-sm">striped walls + box</text>
+          <text x="105" y="164" text-anchor="middle" class="t-sm">finish line at 16 m</text>
+          <text x="105" y="180" text-anchor="middle" class="t-sm">thrown block</text>
+          <text x="105" y="196" text-anchor="middle" class="t-sm">banana photo card</text>
 
-          <rect class="box" x="10" y="110" width="140" height="44" rx="5"/><text x="80" y="137" text-anchor="middle" font-size="12.5">target altitude</text>
-          <rect class="box-soft" x="220" y="110" width="410" height="44" rx="5"/><text x="425" y="130" text-anchor="middle" font-size="12.5">altitude PID → thrust</text><text x="425" y="146" text-anchor="middle" class="t-sm">Kp 10 · Ki 1 · Kd 9</text>
+          <rect class="box" x="230" y="20" width="200" height="74" rx="6"/>
+          <text x="330" y="45" text-anchor="middle" font-size="13" font-weight="600">Eyes</text>
+          <text x="330" y="65" text-anchor="middle" class="t-sm">camera · 320×240 · 30 fps</text>
+          <text x="330" y="81" text-anchor="middle" class="t-sm">tilts with the body</text>
 
-          <rect class="box" x="10" y="180" width="140" height="44" rx="5"/><text x="80" y="207" text-anchor="middle" font-size="12.5">target ω (rad/s)</text>
-          <rect class="box-soft" x="220" y="180" width="410" height="44" rx="5"/><text x="425" y="200" text-anchor="middle" font-size="12.5">yaw rate P → torque</text><text x="425" y="216" text-anchor="middle" class="t-sm">Kp 0.22 · cap 1.5 rad/s</text>
+          <rect class="box-strong" x="480" y="20" width="220" height="74" rx="6"/>
+          <text x="590" y="45" text-anchor="middle" font-size="13" font-weight="600">Brain</text>
+          <text x="590" y="65" text-anchor="middle" class="t-sm">decision clock · 30 Hz</text>
+          <text x="590" y="81" text-anchor="middle" class="t-sm">optic flow → circuits</text>
 
-          <rect class="box-strong" x="720" y="40" width="165" height="184" rx="6"/>
-          <text x="802" y="120" text-anchor="middle" font-size="13" font-weight="600">rigid body</text>
-          <text x="802" y="140" text-anchor="middle" class="t-sm">1 kg · 240 Hz</text>
+          <rect class="box" x="380" y="200" width="320" height="86" rx="6"/>
+          <text x="540" y="223" text-anchor="middle" font-size="13" font-weight="600">Body</text>
+          <text x="540" y="243" text-anchor="middle" class="t-sm">floating box · physics clock 240 Hz</text>
+          <text x="540" y="259" text-anchor="middle" class="t-sm">8 physics ticks per decision</text>
+          <text x="540" y="275" text-anchor="middle" class="t-sm">safety net checked every tick</text>
 
-          <path class="ln" d="M150 62H216" marker-end="url(#p1)"/><path class="ln" d="M400 62H446" marker-end="url(#p1)"/><path class="ln" d="M630 62H716" marker-end="url(#p1)"/>
-          <path class="ln" d="M150 132H216" marker-end="url(#p1)"/><path class="ln" d="M630 132H716" marker-end="url(#p1)"/>
-          <path class="ln" d="M150 202H216" marker-end="url(#p1)"/><path class="ln" d="M630 202H716" marker-end="url(#p1)"/>
+          <path class="ln" d="M105 104V57H226" marker-end="url(#w1)"/>
+          <text x="160" y="48" text-anchor="middle" class="t-sm">what it sees</text>
+          <path class="ln" d="M430 57H476" marker-end="url(#w1)"/>
+          <text x="453" y="48" text-anchor="middle" class="t-sm">picture</text>
+          <path class="ln" d="M590 94V196" marker-end="url(#w1)"/>
+          <text x="582" y="140" text-anchor="end" class="t-sm">target: forward,</text>
+          <text x="582" y="155" text-anchor="end" class="t-sm">sideways, spin, climb</text>
+          <path class="ln" d="M380 243H105V212" marker-end="url(#w1)"/>
+          <text x="245" y="235" text-anchor="middle" class="t-sm">moves, collides</text>
         </svg>
       </div>
-      <figcaption><b>Fig. 1</b>Cascaded control in <code>PyBulletDrone</code>. To move forward, a quadcopter pitches its nose down and lets thrust do the rest, so the outer loop's output is an <em>angle</em>, not a force.</figcaption>
+      <figcaption><b>Fig. 1</b>The parts of the simulation and how one decision goes round the loop. The brain only knows the world through the eyes: the simulator's exact object positions are never given to it, only to the body's safety net.</figcaption>
     </figure>
-    <p>The outer loop maps velocity error to a target tilt, \(\theta^\ast = \operatorname{clip}(K_v\,(v^\ast - v),\ \pm\theta_{max})\). The inner loop is a PD controller on that angle:</p>
-    <div class="eq">$$\tau = K_p\,(\theta^\ast - \theta) - K_d\,\dot\theta$$<span class="eq-num">(1)</span></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Limit</th><th class="num">Value</th></tr></thead>
-        <tbody>
-          <tr><td>Altitude floor / cruise / ceiling</td><td class="num">0.5 / 1.5 / 3.0 m</td></tr>
-          <tr><td>Max horizontal speed</td><td class="num">2.0 m/s</td></tr>
-          <tr><td>Max yaw rate</td><td class="num">1.5 rad/s</td></tr>
-          <tr><td>Max tilt</td><td class="num">0.45 rad (≈ 26°)</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="note">
-      <p><strong>Lesson learned · tilt limits top speed.</strong> The tilt cap was originally 0.30 rad, and the drone physically could not exceed about 1.0 m/s, whatever speed was commanded. More tilt means more of the thrust vector points horizontally. Raising the cap to 0.45 rad unlocked the 2.0 m/s escape strafe. Similarly, a yaw gain of 0.03 took a full second to spin up, and 0.22 made turns responsive.</p>
-    </div>
-  </section>
 
-  <section id="camera">
-    <h2><span class="sec">4.4</span>Camera</h2>
-    <p>A forward camera attached to the body renders <strong>320×240</strong> frames with a <strong>75° field of view</strong> using PyBullet's software renderer, at about 5 ms per frame. That is the same resolution the Tello's video is downsampled to, so the optic-flow and looming code runs unchanged on both.</p>
-  </section>
-
-  <section id="course">
-    <h2><span class="sec">4.5</span>The course</h2>
-    <p>The test course is a straight corridor with three obstacle types and a goal line at \(x = 16\) m:</p>
-    <figure>
-      <div class="fig-body">
-        <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Top-down course map">
-          <!-- flight bounds -->
-          <rect x="30" y="47" width="660" height="126" class="ln-strong dash" fill="none"/>
-          <!-- perimeter walls -->
-          <rect class="fill-ink" x="60" y="17" width="600" height="6"/>
-          <rect class="fill-ink" x="60" y="197" width="600" height="6"/>
-          <!-- box -->
-          <rect class="box-strong" x="228" y="98" width="24" height="24"/>
-          <!-- doorway -->
-          <rect class="box-strong" x="357" y="20" width="6" height="66"/>
-          <rect class="box-strong" x="357" y="134" width="6" height="66"/>
-          <!-- pillar -->
-          <rect class="box-strong" x="457.5" y="78.5" width="15" height="15"/>
-          <!-- goal -->
-          <path class="ln-strong dash" d="M600 20V200"/>
-          <!-- start -->
-          <circle cx="120" cy="110" r="7" class="fill-strong"/>
-          <path class="ln-strong" d="M130 110H200" stroke-dasharray="2 4"/>
-
-          <text x="120" y="135" text-anchor="middle" class="t-sm">start</text>
-          <text x="240" y="140" text-anchor="middle" class="t-sm">box · x=4</text>
-          <text x="360" y="114" text-anchor="middle" class="t-sm">1.6 m</text>
-          <text x="360" y="218" text-anchor="middle" class="t-sm">doorway · x=8</text>
-          <text x="465" y="112" text-anchor="middle" class="t-sm">pillar · x=11.5</text>
-          <text x="600" y="218" text-anchor="middle" class="t-sm">goal · x=16</text>
-          <text x="40" y="42" class="t-sm">soft flight bounds</text>
-          <text x="660" y="14" text-anchor="end" class="t-sm">wall · y=+3</text>
-          <!-- scale -->
-          <path class="ln" d="M30 238H180M30 233V243M180 233V243"/>
-          <text x="105" y="233" text-anchor="middle" class="t-sm">5 m</text>
-        </svg>
-      </div>
-      <figcaption><b>Fig. 2</b>Top-down map of <code>simulation/environment.py</code>, to scale. The dashed soft bounds (x ∈ [−3, 19], y pulled 0.9 m in from the walls) trigger a return-to-area behaviour, not a crash.</figcaption>
-    </figure>
-    <div class="note">
-      <p><strong>Design decision · everything is striped.</strong> Optic flow tracks pixel-level gradients, and a flat-coloured wall gives it almost nothing to work with. Every obstacle uses a high-contrast stripe texture, and the floor is a checkerboard, so that the looming signal in simulation behaves like it does against real, textured surfaces.</p>
-    </div>
+    <h3>The Body</h3>
+    <p>The body is probably the least interesting part of the simulation, as it is essentially just a floating box with a camera. We chose a box over a quadcopter with four individual motors because it still simulates the tilt and thrust mechanisms without us having to tune each motor, which would add a lot of complexity and wouldn’t help us test the circuits we added. We do lose motor lag and realistic motor limits, but the box still obeys real rigid-body physics, which means it can’t slide sideways and has to lean first. That’s why the dodge takes around a second: the box has to lean before it can move, and that lean time is still shorter than the roughly 2.7 seconds it takes the thrown object to reach the drone (4 m at 1.5 m/s). The box also keeps the simulation simple and repeatable, so any difference between two runs comes from the brain and not from the motors.</p>
+    <h3>The Eyes</h3>
+    <p>The eye is just a camera that sits in the middle of the body and looks out at the nose so that when the drone tilts to move the camera will also tilt. The camera captures a 320x240 picture at 30 frames per second because these are around the parameters of the drone that we are working with. Also the eye is the only way the brain can detect anything, similar to a fly. The simulation knows exactly where all the objects are relative to each other, but we purposefully made the brain unable to read those distances, because the circuit we are testing doesn’t measure depth, it only responds to how the picture changes. (The flight controller does have its own separate safety net that uses the real distances, which we get into in the next section.)</p>
+    <h3>The World</h3>
+    <p>As you’ve probably noticed, the world and all the obstacles are covered in stripes. Although it does add some razzle dazzle to the world, the real purpose of the stripes is for the drone to track its surroundings. A flat uncoloured object/wall doesn’t give the camera anything to track, as the drone “sees” by following patterns in the pictures. So, if there aren’t any patterns, then it’ll be as if the drone sees nothing. The floor is striped for the same reason, so the drone always has something to track.</p>
     <div class="grid-2">
       <figure><div class="fig-body"><img src="assets/floor_checker.png" alt="Checkerboard floor texture"></div><figcaption>Floor texture</figcaption></figure>
       <figure><div class="fig-body"><img src="assets/obstacle_stripes.png" alt="Striped obstacle texture"></div><figcaption>Obstacle texture</figcaption></figure>
     </div>
-    <p><span class="todo">TODO</span> Add a screenshot or GIF of the PyBullet GUI during an escape.</p>
+    <h3>The Course (Walls and Box)</h3>
+    <p>We simulated 2 long parallel walls and a box that sits in the middle for initial testing to make sure the drone can move around and avoid the walls and the box in the middle and make it to the finish line (a green marker on the opposite side of the walls) autonomously. The finish line is 16 meters from the start, and each run begins from a slightly different sideways position so the drone can’t just memorize one path.</p>
+    <h3>The Thrown Block (Escape Neuron Test)</h3>
+    <p>We then later added a way to spawn a block in front of the drone with a mouse click, which flies straight back at it to simulate the escape neuron. So, when you click the mouse, a striped block spawns 4 meters in the direction the drone is facing and flies at it at 1.5 m/s, which gives the drone just under 3 seconds to react. If the drone dodges successfully, then it disappears, but if there are any collisions, then the drone will hover and land. This way, we can track where and how the crash happened instead of seeing the drone bounce around the world. Every throw is also identical, which we could never get from lunging at the real drone.</p>
+    <h3>The Banana (Model Test)</h3>
+    <p>And finally, the banana model testing. For this, we just stuck a jpeg onto a flat card and then connected the model to the eyes of the drone to test if it would be able to recognize it. We used a photo instead of a 3D model because the model (YOLOv8n) never recognized the 3D version as a banana.</p>
   </section>
 
-  <section id="safety-net">
-    <h2><span class="sec">4.6</span>Physics safety net</h2>
-    <p>Independent of any controller, the simulated drone uses <strong>true physics distances</strong> to enforce a last line of defence. Within a ±70° cone around the nose:</p>
-    <ul>
-      <li>obstacle closer than <strong>0.6 m</strong> → forward speed capped at 0</li>
-      <li>obstacle closer than <strong>0.3 m</strong> → forced 0.25 m/s retreat</li>
-    </ul>
-    <p>The cone came from a debugging session. The first version used the nearest obstacle in <em>any</em> direction, so a wall merely alongside the drone froze it mid-corridor.</p>
+  <section id="limitations">
+    <h2><span class="sec">4.5</span>Simulator Limitations</h2>
+    <p>It is impossible for the simulation to simulate the real environment 100%. As mentioned before, the box has no motor lag or motor limits. On top of that, there is no wind, the camera has no noise or motion blur, the lighting never changes, and the stripes are perfectly sharp, which is a lot cleaner than anything the real drone will see. That means a result in the simulation tells us the idea works and the code is correct, but it does not promise the same numbers on the real drone. To close that gap, we ran hundreds of tests with the real drone and fine-tuned the models accordingly; the simulation just served as a good starting point to test all of our code.</p>
   </section>
 
-  <section id="loop">
-    <h2><span class="sec">4.7</span>Running the brain in the loop</h2>
-    <p><code>main.py</code> wires everything together: environment, drone, camera, looming detector, fly-brain controller and safety layer. The GUI supports interactive testing:</p>
+  <section id="settings">
+    <h2><span class="sec">4.6</span>Settings at a glance</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Input</th><th>Action</th></tr></thead>
+        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
         <tbody>
-          <tr><td>Left-click</td><td>Launch a block at the drone, the standard escape test</td></tr>
-          <tr><td><kbd>Space</kbd></td><td>Emergency hover</td></tr>
-          <tr><td><kbd>L</kbd></td><td>Land</td></tr>
-          <tr><td><kbd>R</kbd></td><td>Reset</td></tr>
-          <tr><td><kbd>M</kbd></td><td>Toggle autonomous / manual</td></tr>
+          <tr><td>Body</td><td>Box, 1.0 kg, 30 × 30 × 8 cm</td></tr>
+          <tr><td>Physics clock</td><td>240 Hz (about 4 ms)</td></tr>
+          <tr><td>Decision clock</td><td>30 Hz (33 ms), 8 physics ticks per decision</td></tr>
+          <tr><td>Camera</td><td>320 × 240, 75° field of view, sees from 0.05 m to 50 m</td></tr>
+          <tr><td>Finish line</td><td>16 m from the start</td></tr>
+          <tr><td>Test block</td><td>Spawns 4 m away, moves at 1.5 m/s</td></tr>
+          <tr><td>Crash response</td><td>Hover for 180 ticks (0.75 s), then land</td></tr>
+          <tr><td>Max speed / tilt / yaw rate</td><td>2.0 m/s / 0.45 rad (about 26°) / 1.5 rad/s</td></tr>
+          <tr><td>Safety distances</td><td>Within 0.6 m: no moving forward. Within 0.3 m: back away at 0.25 m/s. Only obstacles within 70° of the nose count.</td></tr>
+          <tr><td>Real drone</td><td>DJI Tello, about 80 g, 960 × 720 video at 30 fps, 82.6° diagonal field of view (55.6° vertical)</td></tr>
         </tbody>
       </table>
     </div>
-    <p>In <em>neuron test mode</em> the drone hovers in place unless the brain triggers ESCAPE. This isolates the escape reflex from cruising and avoidance behaviour.</p>
-    <div class="code">
-      <div class="code-head">shell</div>
-<pre><code><span class="c"># main venv: pybullet, numpy, opencv-python, djitellopy</span>
-python main.py
-<span class="c"># the brain subprocess runs in a separate conda env with brian2 (see Fly-Brain/environment.yml)</span></code></pre>
-    </div>
-  </section>
-
-  <section id="eval">
-    <h2><span class="sec">4.8</span>Evaluation harness</h2>
-    <p><code>evaluation/run_trials.py</code> runs headless trials and <code>metrics.py</code> scores them on:</p>
-    <ul>
-      <li>distance travelled down the course</li>
-      <li>collisions and emergency stops</li>
-      <li>avoidance success: whether the drone cleared an obstacle within a 1.5 s window</li>
-    </ul>
-    <p>The harness currently drives the hand-written reflex baseline (<code>ReflexController</code>). Pointing it at the fly-brain controller for a direct brain-versus-baseline comparison is the next step.</p>
-    <p><span class="todo">TODO</span> Batch results table: fly brain vs reflex baseline, over N seeds.</p>
-    <p>Two development results are recorded in code comments and tests:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Experiment</th><th>Result</th><th>Source</th></tr></thead>
-        <tbody>
-          <tr><td>Escape: sideways only vs sideways + back-off</td><td>Hit by a second box in 3/3 vs 0/3 runs</td><td><code>NeuralPathways/flybrain_controller.py</code></td></tr>
-          <tr><td>Back-off speed 1.0 vs 2.0 m/s</td><td>Miss distance 0.12 m → 0.42 m</td><td><code>NeuralPathways/flybrain_controller.py</code></td></tr>
-          <tr><td>Step response, sideways</td><td>≈ 0.6 m in ≈ 1 s</td><td><code>Testing/drone_step_response.py</code></td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="small muted">Development runs with small n. Indicative only.</p>
-  </section>
-
-  <section id="sim2real">
-    <h2><span class="sec">4.9</span>Sim-to-real</h2>
-    <p>Because both drones implement <code>DroneInterface</code>, the brain moved to hardware by swapping one class. The differences that mattered in practice:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Aspect</th><th>Simulation</th><th>Real Tello</th></tr></thead>
-        <tbody>
-          <tr><td>Field of view</td><td>75° (rendered)</td><td>≈ 55.6° vertical</td></tr>
-          <tr><td>Image</td><td>Clean, sharp textures</td><td>Compression, blur, lighting changes</td></tr>
-          <tr><td>Dynamics</td><td>Coasts under damping</td><td>Firmware brakes quickly</td></tr>
-          <tr><td>Position</td><td>Ground truth</td><td>Dead-reckoned</td></tr>
-          <tr><td>Proximity net</td><td>Physics ray distances</td><td>None</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p>The result: in a 60 s real flight the same controller produced 19 escape events, detailed on the <a href="brain.html#flight">neural pathways page</a>.</p>
+    <p class="small muted">Values from <code>Simulator/pybullet_drone.py</code>, <code>Simulator/pybullet_simulator.py</code> and <code>Simulator/camera.py</code>. The Tello's mass is DJI's published spec.</p>
   </section>
 
   <section id="references">

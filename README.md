@@ -18,7 +18,7 @@ pipeline (YOLOv8 + a trained ripeness classifier) lets the drone find and
   DNp01/DNp03/DNp06) watches optical-flow expansion for something looming
   (a swatting hand, an obstacle) and fires a hard dodge, exactly like the
   biological pathway it's copied from.
-- **DNg02 flight-motor / stabilizer** *(opt-in, in progress)* — a
+- **DNg02 flight-motor / stabilizer** *(opt-in)* — a
   24-neuron population whose recruitment count sets thrust and steering
   from residual optic flow, standing in for a drone's built-in gyroscope.
   On the real Tello it holds the heading in every state of the banana
@@ -32,7 +32,8 @@ pipeline (YOLOv8 + a trained ripeness classifier) lets the drone find and
   motors, and can override a command outright if something gets too close.
 
 Currently flying: a real, front-camera-only Tello running the banana-seek
-behavior with the escape reflex as a background dodge (swat detection
+behavior with the escape reflex as a background dodge and the DNg02
+stabilizer holding the heading (swat detection
 validated 5/5 on a desk test with zero false positives).
 
 ## Architecture

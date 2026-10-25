@@ -21,168 +21,187 @@
 <main class="page">
   <header class="hero">
     <p class="eyebrow">Part 01 · Perception</p>
-    <h1>Teaching a drone to find (and judge) bananas</h1>
-    <p class="lede">Fruit flies are drawn to ripening fruit. To give FuityFly a "hunger" drive, we built a two-stage vision model that finds bananas in the Tello's video and grades their ripeness into six classes.</p>
+    <h1>Banana recognition</h1>
     <div class="byline">
       <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
-      <span class="meta">food_detection/</span>
+      <span class="meta">BananaModel/</span>
     </div>
   </header>
 
   <aside class="toc" id="toc"></aside>
 
-  <section id="two-stage">
-    <h2><span class="sec">1.1</span>Why two stages?</h2>
-    <p>"Where is the banana?" and "how ripe is it?" are different problems. Localisation is solved well by off-the-shelf detectors: COCO already has a <code>banana</code> class. Ripeness is fine-grained colour and texture judgement that COCO knows nothing about.</p>
-    <p>So we split the task. A pretrained <strong>YOLOv8n</strong> detector<sup class="fn"><a href="#ref-yolo">[1]</a></sup> proposes banana boxes, and a custom <strong>MobileNetV2</strong> classifier<sup class="fn"><a href="#ref-mnv2">[2]</a></sup> labels each crop. Both are small enough to run on a laptop receiving the Tello's video stream in real time.</p>
-  </section>
+  <section id="overview">
+    <h2><span class="sec">1.1</span>Feeding</h2>
+    <p>One key behaviour of the fruit fly we wanted to model in our drone was the feeding. Now due to limitations on our laptops and sanity, we decided to stick with only Bananas, and their different types of ripeness: freshripe, freshunripe, overripe, ripe, rotten, unripe. So our goal was that the drone captures images through its camera, checking if any bananas exist and if they do, then classify them into one of six categories, with the fly choosing to go to the ones that are most rotten. To do this, we built a 2 stage pipeline - a pretrained detector that locates the banana, and passes it onto a classifier we built that judges the ripeness.</p>
 
-  <section id="pipeline">
-    <h2><span class="sec">1.2</span>Inference pipeline</h2>
     <figure>
       <div class="fig-body">
-        <svg class="dg" viewBox="0 0 900 200" role="img" aria-label="Frame to YOLOv8n to padded crop to MobileNetV2 to ripeness label">
-          <defs><marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
-          <rect class="box" x="10" y="60" width="120" height="70" rx="6"/>
-          <text x="70" y="92" text-anchor="middle" font-size="13">Tello frame</text>
-          <text x="70" y="110" text-anchor="middle" class="t-sm">BGR image</text>
-
-          <rect class="box-soft" x="170" y="50" width="160" height="90" rx="6"/>
-          <text x="250" y="80" text-anchor="middle" font-size="13" font-weight="600">YOLOv8n</text>
-          <text x="250" y="99" text-anchor="middle" class="t-sm">COCO weights</text>
-          <text x="250" y="116" text-anchor="middle" class="t-sm">class 46 · conf ≥ 0.15</text>
-
-          <rect class="box" x="370" y="50" width="150" height="90" rx="6"/>
-          <text x="445" y="80" text-anchor="middle" font-size="13">Crop + pad</text>
-          <text x="445" y="99" text-anchor="middle" class="t-sm">8% each side</text>
-          <text x="445" y="116" text-anchor="middle" class="t-sm">224×224 · ImageNet norm</text>
-
-          <rect class="box-strong" x="560" y="50" width="170" height="90" rx="6"/>
-          <text x="645" y="80" text-anchor="middle" font-size="13" font-weight="600">MobileNetV2</text>
-          <text x="645" y="99" text-anchor="middle" class="t-sm">frozen features</text>
-          <text x="645" y="116" text-anchor="middle" class="t-sm">Dropout · Linear(1280→6)</text>
-
-          <rect class="box" x="770" y="60" width="120" height="70" rx="6"/>
-          <text x="830" y="92" text-anchor="middle" font-size="13">softmax</text>
-          <text x="830" y="110" text-anchor="middle" class="t-sm">label + conf</text>
-
-          <path class="ln" d="M130 95H166" marker-end="url(#b1)"/>
-          <path class="ln" d="M330 95H366" marker-end="url(#b1)"/>
-          <path class="ln" d="M520 95H556" marker-end="url(#b1)"/>
-          <path class="ln" d="M730 95H766" marker-end="url(#b1)"/>
-          <text x="250" y="170" text-anchor="middle" class="t-sm">where?</text>
-          <text x="645" y="170" text-anchor="middle" class="t-sm">how ripe?</text>
-        </svg>
+        <div class="pipe">
+          <div class="pipe-step">
+            <img src="assets/pipeline_frame.jpg" alt="Tello camera frame of a banana on a footstool, with the YOLO bounding box and the padded crop box drawn around it" width="960" height="720">
+            <p><b>1 · Detect</b>YOLOv8 finds the banana, 97% sure</p>
+          </div>
+          <div class="pipe-arrow" aria-hidden="true">→</div>
+          <div class="pipe-step pipe-crop">
+            <img src="assets/pipeline_crop.jpg" alt="The banana cropped out of the frame and resized to 224 by 224 pixels" width="224" height="224">
+            <p><b>2 · Crop</b>+8% each side, 224 × 224</p>
+          </div>
+          <div class="pipe-arrow" aria-hidden="true">→</div>
+          <div class="pipe-step">
+            <div class="probs" role="img" aria-label="Classifier output: freshripe 95.4%, rotten 4.5%, every other class under 0.1%">
+              <div class="prob top"><span>freshripe</span><i style="width:95.4%"></i><em>95.4%</em></div>
+              <div class="prob"><span>rotten</span><i style="width:4.5%"></i><em>4.5%</em></div>
+              <div class="prob"><span>ripe</span><i style="width:0"></i><em>0.0%</em></div>
+              <div class="prob"><span>unripe</span><i style="width:0"></i><em>0.0%</em></div>
+              <div class="prob"><span>freshunripe</span><i style="width:0"></i><em>0.0%</em></div>
+              <div class="prob"><span>overripe</span><i style="width:0"></i><em>0.0%</em></div>
+            </div>
+            <p><b>3 · Classify</b>MobileNetV2 picks the most likely class</p>
+          </div>
+        </div>
       </div>
-      <figcaption><b>Fig. 1</b>Two-stage inference in <code>BananaDetector</code> (<code>banana_detector.py</code>). Each detected box is padded by 8% of its width and height before cropping, so the classifier sees the banana's edges and some context.</figcaption>
+      <figcaption><b>Fig. 1</b>The pipeline on a real frame from our 23 October flight (<code>Drone/flight_frames/</code>). Yellow is the YOLO box, white is the box after the 8% expansion. Detector: fine-tuned YOLOv8n at 960 px. Classifier: the original checkpoint.</figcaption>
     </figure>
   </section>
 
+  <section id="stages">
+    <h2><span class="sec">1.2</span>Connecting the two stages</h2>
+    <p>Now a bit on how the two stages are connected. Each frame from the drone’s eyes is sent to the YOLOv8 model, which returns a bounding box around every banana it finds. Because the bounding box is often a bit tight, each box is expanded by 8% of its width and height so that the tips of the bananas aren’t cut off. The banana is then cropped out of the frame and resized to 224 x 224 pixels, and normalized using the ImageNet mean and standard deviation. Then each of the bananas are fed into the MobileNetV2, which will output a probability between 0-1 for each of the 6 banana classes, with the most likely of the classes, becoming the label of the banana. The final output from this stage is a list of the banana bounding box, YOLO’s confidence that it’s a banana, the label for the banana, and the classifier’s confidence on the label. The decision to split the process into 2 stages, helped with us not having to draw the bounding boxes for the training - YOLO already knew what a banana is, we could just use a dataset containing the bananas grouped by the classes. It also meant that we could upgrade each of the 2 stages separately, which we did by swapping in a larger YOLO model, when the drone is hovering. The full pipeline runs at ~22 frames per second with the smaller model (Drone is moving), and at about ~11 frames per second with the larger YOLO model (Drone is hovering / sharp eyes detector)</p>
+
+    <figure>
+      <div class="fig-body">
+        <svg class="dg" viewBox="0 0 720 470" role="img" aria-label="Activity diagram: each frame goes to YOLOv8 nano while the drone is moving, or to the larger YOLOv8 small sharp-eyes detector while it hovers, then both paths go to the MobileNetV2 classifier">
+          <defs><marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
+          <circle cx="360" cy="18" r="9" class="fill-strong"/>
+          <path class="ln" d="M360 27V50" marker-end="url(#b2)"/>
+
+          <rect class="box" x="260" y="54" width="200" height="40" rx="18"/>
+          <text x="360" y="79" text-anchor="middle" font-size="13">Tello frame · 960×720</text>
+          <path class="ln" d="M360 94V118" marker-end="url(#b2)"/>
+
+          <path class="box-soft" d="M360 122 470 166 360 210 250 166Z"/>
+          <text x="360" y="162" text-anchor="middle" font-size="12.5">drone hovering,</text>
+          <text x="360" y="178" text-anchor="middle" font-size="12.5">scanning for food?</text>
+
+          <path class="ln" d="M250 166H140V238" marker-end="url(#b2)"/>
+          <text x="196" y="156" text-anchor="middle" class="t-sm">no · moving</text>
+          <path class="ln" d="M470 166H580V238" marker-end="url(#b2)"/>
+          <text x="524" y="156" text-anchor="middle" class="t-sm">yes · hovering</text>
+
+          <rect class="box" x="30" y="242" width="220" height="78" rx="18"/>
+          <text x="140" y="268" text-anchor="middle" font-size="13" font-weight="600">YOLOv8 nano</text>
+          <text x="140" y="287" text-anchor="middle" class="t-sm">conf ≥ 20%</text>
+          <text x="140" y="304" text-anchor="middle" class="t-sm">pipeline ~22 fps</text>
+
+          <rect class="box-strong" x="470" y="242" width="220" height="78" rx="18"/>
+          <text x="580" y="268" text-anchor="middle" font-size="13" font-weight="600">YOLOv8 small</text>
+          <text x="580" y="287" text-anchor="middle" class="t-sm">"sharp eyes" · conf ≥ 30%</text>
+          <text x="580" y="304" text-anchor="middle" class="t-sm">pipeline ~11 fps</text>
+
+          <path class="ln" d="M140 320V350H330" marker-end="url(#b2)"/>
+          <path class="ln" d="M580 320V350H390" marker-end="url(#b2)"/>
+          <path class="box-soft" d="M360 332 390 350 360 368 330 350Z"/>
+          <path class="ln" d="M360 368V392" marker-end="url(#b2)"/>
+
+          <rect class="box" x="240" y="396" width="240" height="40" rx="18"/>
+          <text x="360" y="421" text-anchor="middle" font-size="13">crop → MobileNetV2 ripeness</text>
+          <path class="ln" d="M360 436V448" marker-end="url(#b2)"/>
+          <circle cx="360" cy="459" r="9" class="box"/>
+          <circle cx="360" cy="459" r="5" class="fill-strong"/>
+        </svg>
+      </div>
+      <figcaption><b>Fig. 2</b>Which detector looks at a frame. In code the sharp-eyes detector is used while the drone holds still to look: the pauses in a scan, LOOK, and WAIT after 1.5 s without finding the banana (<code>wants_zoom</code> in <code>feeding_behaviour.py</code>).</figcaption>
+    </figure>
+  </section>
+
+  <section id="detector">
+    <h2><span class="sec">1.3</span>Stage one: YOLOv8</h2>
+    <p>In the first stage of the pipeline, we used the YOLOv8 (You Only Look Once) model, which is an object detector that finds every object in an image in just one pass of the network. It predicts a bounding box, and a set of class scores for each object. We used the nano version of the model, pretrained by Ultralytics, which consists of roughly 3.2 million parameters. One of these classes - Class 46 - is “banana”, so instead of training our own detector, we restricted the YOLO model to that class and fine tuned it. A detection is only treated as food if the YOLO is 20% confident it is a banana (30% for the sharp-eyes detector). The main change we made was the image resolution. By default, YOLO shrinks the image to 640 px on its longest side, but the Tello’s image resolution is 960 x 720. A banana kept at a distance away with the defaults would lose \(1 - (640/960)^2 \approx 56\%\) of its pixels before YOLO can even see it. Running the YOLO model at the full 960 pixels raised the detection rate of a banana filling in 1.5% of the frame from 1 in 12 frames to 9 in 12 frames. This however, extra increase in performance caused roughly double the processing time. This was a trade that we deemed to be worth it. For bananas even farther away, we added a “sharp-eyes” mode using the larger YOLOv8 model and a confidence threshold of 30%. For banana’s filling in 1% of the frame, it found bananas in 22 of 24 frames compared to the smaller YOLOv8 nano, which only found it in 7 of 24 frames. Since it is about twice as slow, this only kicks in when the drone is hovering in place scanning for food, so that the control loop is fast enough for the other neurons and actions.</p>
+  </section>
+
   <section id="dataset">
-    <h2><span class="sec">1.3</span>Dataset</h2>
-    <p>The classifier is trained on a labelled banana-ripeness image set (a Roboflow export) in the standard <code>ImageFolder</code> layout with fixed train, validation and test splits. There are six classes:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Class</th><th class="num">Train</th><th class="num">Valid</th><th class="num">Test</th><th style="width:34%">Train share</th></tr></thead>
-        <tbody>
-          <tr><td><code>rotten</code></td><td class="num">1,340</td><td class="num">388</td><td class="num">185</td><td><div class="bar" style="width:100%"></div></td></tr>
-          <tr><td><code>overripe</code></td><td class="num">783</td><td class="num">229</td><td class="num">113</td><td><div class="bar" style="width:58.4%"></div></td></tr>
-          <tr><td><code>freshripe</code></td><td class="num">704</td><td class="num">207</td><td class="num">102</td><td><div class="bar" style="width:52.5%"></div></td></tr>
-          <tr><td><code>freshunripe</code></td><td class="num">501</td><td class="num">136</td><td class="num">83</td><td><div class="bar" style="width:37.4%"></div></td></tr>
-          <tr><td><code>ripe</code></td><td class="num">470</td><td class="num">132</td><td class="num">52</td><td><div class="bar" style="width:35.1%"></div></td></tr>
-          <tr><td><code>unripe</code></td><td class="num">133</td><td class="num">31</td><td class="num">27</td><td><div class="bar" style="width:9.9%"></div></td></tr>
-        </tbody>
-        <tfoot><tr><td>Total</td><td class="num">3,931</td><td class="num">1,123</td><td class="num">562</td><td></td></tr></tfoot>
-      </table>
-    </div>
-    <p class="small muted">Table 1. Images per class and split, counted from <code>food_detection/dataset/</code>. Bars are scaled to the largest training class.</p>
-    <div class="note">
-      <p><strong>Class imbalance.</strong> The largest class, <code>rotten</code>, has about 10× more training images than the smallest, <code>unripe</code> (1,340 vs 133). Plain accuracy can hide poor performance on rare classes, so per-class metrics matter here.</p>
-    </div>
+    <h2><span class="sec">1.4</span>Dataset</h2>
+    <p>Before we get into the second stage of the pipeline, I wanted to take a moment to talk about the dataset that we used to train the second model. This dataset came from Roboflow and it consisted of 5616 images of bananas, all classified according to the ripeness. The images in the dataset contained 3931 for training, 1123 for validation and 562 for testing. The dataset was skewed however, with heavy class imbalance in which rotten had 1340 training images while unripe had only 133 images. Another issue with the dataset was that the images in the dataset were close-up and well-lit, compared to the actual shots from the drone where they are instead from greater distances, as well as varying lighting conditions and sometimes motions as well. The training images also had an augmentation applied during training, to avoid overfitting. These augmentations were horizontal flips, rotations of up to 15°, and had their brightness, contrast and saturation vary by up to 20%</p>
+
+    <div class="eq">$$\begin{bmatrix}x'\\ y'\end{bmatrix} = \begin{bmatrix}\cos\theta & -\sin\theta\\ \sin\theta & \cos\theta\end{bmatrix}\begin{bmatrix}x - c_x\\ y - c_y\end{bmatrix} + \begin{bmatrix}c_x\\ c_y\end{bmatrix}, \qquad \theta \sim \mathcal{U}(-15^\circ,\ 15^\circ)$$<span class="eq-num">(1)</span></div>
+    <p class="small muted">Each pixel \((x, y)\) is rotated about the image centre \((c_x, c_y)\) by a new random angle \(\theta\) every time the image is loaded (<code>transforms.RandomRotation(15)</code> in <code>BananaModel/dataset.py</code>).</p>
+
+    <figure>
+      <div class="fig-body">
+        <div class="rot-row">
+          <div><img src="assets/pipeline_crop.jpg" alt="Banana crop rotated by minus 15 degrees" style="transform:rotate(15deg)"><span>θ = −15°</span></div>
+          <div><img src="assets/pipeline_crop.jpg" alt="Banana crop, not rotated"><span>θ = 0°</span></div>
+          <div><img src="assets/pipeline_crop.jpg" alt="Banana crop rotated by plus 15 degrees" style="transform:rotate(-15deg)"><span>θ = +15°</span></div>
+        </div>
+      </div>
+      <figcaption><b>Fig. 3</b>The original crop from Fig. 1 and the two ends of the rotation range.</figcaption>
+    </figure>
   </section>
 
-  <section id="model">
-    <h2><span class="sec">1.4</span>Model: transfer learning on MobileNetV2</h2>
-    <p>MobileNetV2 is built from inverted residual blocks with depthwise-separable convolutions. That gives strong ImageNet features at a small fraction of the compute of larger CNNs, which matters when the classifier runs once per detected banana in every frame.</p>
-    <p>We freeze the entire feature extractor and replace only the classifier head:</p>
-    <div class="code">
-      <div class="code-head">food_detection/model.py</div>
-<pre><code>def build_model(num_classes):
-    model = models.mobilenet_v2(weights='IMAGENET1K_V1')
+  <section id="classifier">
+    <h2><span class="sec">1.5</span>Stage two: MobileNetV2</h2>
+    <p>The second stage of the pipeline consists of the MobileNetV2 model. The reason we chose this model over any of the other models was that it’s small, roughly 2.23 million parameters and it’s fast on a laptop’s CPU. MobileNetV2 achieves this by replacing the standard convolutions for depthwise separable convolutions, which filter each colour channel separately before combining them. This allows it to cut the amount of calculations needed drastically while still keeping most of the accuracy. Because we had a limited dataset size (~4000 training images) we used transfer learning. This is a technique in which instead of retraining the whole model, we freeze the beginning layers of the model. For us, we started with MobileNetV2 which has been trained across ImageNet, a dataset containing over 1 million images, and 1000 categories, so it had already learnt how to recognize edges, colours and textures. We then froze all those feature layers, not letting their weights shift and replaced the model’s original 1000 class output layer to our custom six class output layer. The new layer applies dropout with a rate of about 20%, randomly switching off a fifth of the features so the model doesn’t rely too heavily on any single feature, followed by a linear layer that maps the 1280 features down to 6 scores. A softmax function is then applied turning these scores into a probability, and the class with the highest probability becomes the class of the banana. As a result of our earlier efforts, only 7686 of the model’s 2.23 million parameters were trained by us, about 0.34% of the network. This made training fast and reduced the risk of overfitting on our small dataset. The new layer was trained with cross-entropy loss and the Adam optimizer with a learning rate of 0.001, in batches of 32 images. After every pass of the training data (an epoch), we tested the accuracy of the model on the validation set, and saved a copy of the best found weights so far. Training was run for up to 50 epochs, stopping earlier if no improvement was found for 10 epochs in a row. This was to prevent memorizing the training images, after it had stopped getting better at classifying bananas. The final model took about 19 ms to classify a banana on a laptop CPU.</p>
 
-    for param in model.features.parameters():
-        param.requires_grad = False
+    <h3>Softmax</h3>
+    <p class="small muted">The linear layer gives six scores \(z_1, \dots, z_6\). Softmax turns them into probabilities that add up to 1:</p>
+    <div class="eq">$$p_c = \frac{e^{z_c}}{\sum_{k=1}^{6} e^{z_k}}, \qquad \hat{y} = \arg\max_c\, p_c$$<span class="eq-num">(2)</span></div>
 
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(model.last_channel, num_classes)
-    )
-    return model</code></pre>
-    </div>
-    <p>Only the final linear layer is trained, mapping the 1,280-dimensional pooled feature \(\mathbf{h}\) to six logits:</p>
-    <div class="eq">$$p(c \mid \mathbf{x}) = \operatorname{softmax}\!\big(W\,\operatorname{dropout}(\mathbf{h}) + \mathbf{b}\big)_c, \qquad W \in \mathbb{R}^{6\times 1280}$$<span class="eq-num">(1)</span></div>
-    <p>That is 7,686 trainable parameters (6 × 1,280 weights + 6 biases). With about 4k training images, a small head like this is much less likely to overfit than fine-tuning the whole network.</p>
-  </section>
+    <h3>Cross-entropy loss</h3>
+    <p class="small muted">For a batch of \(B = 32\) images where image \(i\) has true class \(y_i\), the loss is the average negative log-probability given to the right answer:</p>
+    <div class="eq">$$\mathcal{L} = -\frac{1}{B}\sum_{i=1}^{B} \log p_{y_i}^{(i)}$$<span class="eq-num">(3)</span></div>
 
-  <section id="training">
-    <h2><span class="sec">1.5</span>Training</h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
-        <tbody>
-          <tr><td>Input size</td><td>224 × 224, ImageNet mean/std normalisation</td></tr>
-          <tr><td>Batch size</td><td>32</td></tr>
-          <tr><td>Optimiser</td><td>Adam, learning rate 1e-3 (classifier head only)</td></tr>
-          <tr><td>Loss</td><td>Cross-entropy</td></tr>
-          <tr><td>Epochs</td><td>Up to 50, early stopping with patience 10</td></tr>
-          <tr><td>Checkpoint</td><td>Best validation accuracy → <code>checkpoints/best_banana_model.pth</code></td></tr>
-          <tr><td>Augmentation (train)</td><td>Random horizontal flip, ±15° rotation, colour jitter (brightness/contrast/saturation 0.2)</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="note">
-      <p><strong>Design decision · gentle colour jitter.</strong> Colour is the main cue for ripeness, since green, yellow and brown are what separate the classes. Jitter is kept mild (±20%): enough to make the model robust to camera white balance, but not so strong that it blurs the colour boundaries between classes.</p>
-    </div>
-  </section>
-
-  <section id="thresholds">
-    <h2><span class="sec">1.6</span>Confidence thresholds</h2>
-    <p>On a flying drone, a missed banana just means searching a little longer. A false banana makes the drone "feed" on nothing. We tuned thresholds separately for the library default and for flight:</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Stage</th><th class="num">Library default</th><th class="num">In flight</th></tr></thead>
-        <tbody>
-          <tr><td>YOLOv8n detection confidence</td><td class="num">0.15</td><td class="num">0.20</td></tr>
-          <tr><td>Ripeness classifier confidence</td><td class="num">0.00</td><td class="num">0.10</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="small muted">Sources: <code>BananaModel/banana_detector.py</code> (<code>BananaDetector</code> defaults) and <code>NeuralPathways/FoodNeuron/feeding_behaviour.py</code>.</p>
-    <p>The detector threshold is deliberately low. COCO's banana class is a general-purpose category, and a drone's-eye view of a single banana, often green or brown and at a distance, tends to score low even when the detection is correct.</p>
+    <h3>Adam</h3>
+    <p class="small muted">With gradient \(g_t = \nabla_\theta \mathcal{L}\) at step \(t\), Adam keeps running averages of the gradient and its square, corrects them for starting at zero, and steps each weight by its own scaled amount:</p>
+    <div class="eq">$$m_t = \beta_1 m_{t-1} + (1-\beta_1)\,g_t, \qquad v_t = \beta_2 v_{t-1} + (1-\beta_2)\,g_t^2$$<span class="eq-num">(4)</span></div>
+    <div class="eq">$$\hat{m}_t = \frac{m_t}{1-\beta_1^t}, \qquad \hat{v}_t = \frac{v_t}{1-\beta_2^t}, \qquad \theta_t = \theta_{t-1} - \eta\,\frac{\hat{m}_t}{\sqrt{\hat{v}_t}+\epsilon}$$<span class="eq-num">(5)</span></div>
+    <p class="small muted">\(\eta = 0.001\). \(\beta_1 = 0.9\), \(\beta_2 = 0.999\) and \(\epsilon = 10^{-8}\) are PyTorch's defaults, which <code>BananaModel/train.py</code> doesn't change. Only the 7,686 weights of the new layer are in \(\theta\).</p>
   </section>
 
   <section id="results">
-    <h2><span class="sec">1.7</span>Results</h2>
-    <div class="stats">
-      <div class="stat"><b><span class="todo">TODO</span></b><span>validation accuracy (best checkpoint)</span></div>
-      <div class="stat"><b><span class="todo">TODO</span></b><span>test accuracy (562 images)</span></div>
-      <div class="stat"><b><span class="todo">TODO</span></b><span>macro-F1 across 6 classes</span></div>
-    </div>
-    <p><span class="todo">TODO</span> Confusion matrix and training curves. These are not yet recorded in the repo. Evaluate the best checkpoint on the 562-image test split and add the numbers here.</p>
+    <h2><span class="sec">1.6</span>Results</h2>
+    <p>We evaluated the classifier on a test set of the dataset of 562 images, that were never used during training or model selection. It correctly classified 526 of them, with an accuracy of 93.6%. With our classes being so unbalanced we also reported the F1 macro score which weighs each class equally, regardless of the amount of images in them. This was 92%, showing the model works well across all the classes, not just the ones with the most images. Most mistakes (22 of 36 errors) were between neighbouring classes, which makes sense as bananas at adjacent stages can look quite similar. The weakest class was ripe with a recall of 78.8%. I suspect there are 2 reasons involved for this. The first reason being since it is in the middle of the classes, it can be confused with both adjacencies: freshripe and overripe. Of the mistakes 9 ripe bananas were labeled fresh ripe, and 6 over ripe were labeled ripe. The other reason being that both of these neighbouring classes have a decent bit more training images, 704 for freshripe, and 783 for overripe. This likely pulled the borderline images towards them. One unusual pattern was occasional confusion between rotten and unripe. This could be because heavily browned bananas and deep green bananas are both dark, but we did not investigate this further. In terms of speed, the classifier takes about 19 ms per banana, and the full pipeline runs at 22 fps. Since the Tello drone streams at 30 frames, this is fast enough to process most frames as they arrive. These results are on the test set though, and not on the flight tests which the next section is about.</p>
 
-    <h3>Observed in flight</h3>
-    <p>Across the banana-seeking flights logged on the physical Tello (<code>flight_logs/</code>, five sessions), detector confidence on real bananas ranged from about 0.23 to 0.75, and classifier confidence from about 0.55 to 0.85. The ripeness label sometimes flipped between frames on the same banana (for example <code>rotten</code> ↔ <code>freshripe</code>). This is expected: motion blur, lighting and the drone's changing viewpoint all move the crop.</p>
-    <p class="small muted">These figures are illustrative ranges from flight logs, not a controlled benchmark.</p>
+    <figure>
+      <div class="table-wrap cm">
+        <table>
+          <thead><tr><th>true ↓ · predicted →</th><th class="num"><code>freshripe</code></th><th class="num"><code>freshunripe</code></th><th class="num"><code>overripe</code></th><th class="num"><code>ripe</code></th><th class="num"><code>rotten</code></th><th class="num"><code>unripe</code></th></tr></thead>
+          <tbody>
+          <tr><th scope="row"><code>freshripe</code></th><td class="num dark" style="--a:1.00">101</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.02">1</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td></tr>
+          <tr><th scope="row"><code>freshunripe</code></th><td class="num" style="--a:0.00">·</td><td class="num dark" style="--a:1.00">83</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td></tr>
+          <tr><th scope="row"><code>overripe</code></th><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num dark" style="--a:1.00">107</td><td class="num" style="--a:0.10">6</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td></tr>
+          <tr><th scope="row"><code>ripe</code></th><td class="num" style="--a:0.15">9</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num dark" style="--a:0.68">41</td><td class="num" style="--a:0.03">2</td><td class="num" style="--a:0.00">·</td></tr>
+          <tr><th scope="row"><code>rotten</code></th><td class="num" style="--a:0.07">4</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.10">6</td><td class="num" style="--a:0.03">2</td><td class="num dark" style="--a:1.00">169</td><td class="num" style="--a:0.07">4</td></tr>
+          <tr><th scope="row"><code>unripe</code></th><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.03">2</td><td class="num" style="--a:0.42">25</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><b>Fig. 4</b>Confusion matrix on the 562 test images (from <code>BananaModel/README.md</code>). Rows are the true class, columns what the classifier said. The diagonal is correct, and the darker a cell, the more images landed there. Most off-diagonal counts sit next to the diagonal: neighbouring ripeness levels.</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Class</th><th class="num">Recall</th><th class="num">Precision</th><th class="num">F1</th></tr></thead>
+        <tbody>
+          <tr><td><code>freshripe</code></td><td class="num">99.0%</td><td class="num">88.6% (101/114)</td><td class="num">93.5%</td></tr>
+          <tr><td><code>freshunripe</code></td><td class="num">100%</td><td class="num">100% (83/83)</td><td class="num">100%</td></tr>
+          <tr><td><code>overripe</code></td><td class="num">94.7%</td><td class="num">94.7% (107/113)</td><td class="num">94.7%</td></tr>
+          <tr><td><code>ripe</code></td><td class="num">78.8%</td><td class="num">82.0% (41/50)</td><td class="num">80.4%</td></tr>
+          <tr><td><code>rotten</code></td><td class="num">91.4%</td><td class="num">97.7% (169/173)</td><td class="num">94.4%</td></tr>
+          <tr><td><code>unripe</code></td><td class="num">92.6%</td><td class="num">86.2% (25/29)</td><td class="num">89.3%</td></tr>
+        </tbody>
+        <tfoot><tr><td>Macro average</td><td class="num">92.7%</td><td class="num">91.5%</td><td class="num">92.0%</td></tr></tfoot>
+      </table>
+    </div>
   </section>
 
-  <section id="limits">
-    <h2><span class="sec">1.8</span>Limitations &amp; next steps</h2>
-    <ul>
-      <li><strong>Temporal smoothing:</strong> a majority vote over the last few frames would remove the label flicker seen in flight.</li>
-      <li><strong>Imbalance:</strong> class-weighted loss or oversampling <code>unripe</code> should help the rarest class.</li>
-      <li><strong>Domain gap:</strong> the training images are not from the Tello's camera. A small set of drone-captured crops for fine-tuning would close the gap.</li>
-      <li><strong>Partial fine-tuning:</strong> unfreezing the last few inverted-residual blocks is a natural next experiment once a baseline accuracy is recorded.</li>
-    </ul>
+  <section id="real-world">
+    <h2><span class="sec">1.7</span>Real-world tests</h2>
+    <p>In the real world tests, we found a couple of issues. The label sometimes flicked between rotten and fresh ripe from frame to frame. We believe this was due to the mismatch between the close up well-lit training photos and the photos from the drone which had varying lighting and distance. To reduce the flicker, we smoothed the ripeness label over the last 5 frames, by taking the most common prediction, so a single wrong frame can no longer change the drone’s decision. With this in place the drone chooses the most rotten banana in its view to go eat from just as real fruit flies do. The detector also has some limitations as well. Because we had not yet fine tuned the YOLO on our settings, it could sometimes miss bananas that are weirdly shaped or oriented, or partly hidden.</p>
+  </section>
+
+  <section id="fine-tuning">
+    <h2><span class="sec">1.8</span>Fine-tuning on our own flights</h2>
+    <p>To close the gap between the real world tests and the out of the box models, we ended up fine tuning both stages of the pipeline from our own flights. We started by adding another parameter (<code>--save-frames</code>) to save the frames of the flight twice every second. This was run with 6 practice flights, where we then saved the last flight for validation. A much larger YOLO Model (YOLO11x) was then run over those frames to classify the bananas on each frame. It was then reviewed and verified by us, to make sure all the bananas were in the correct bounding box and there were no other random bounding boxes. Frames with no bananas were also kept, so the model knew when not to classify a banana and what a wall, hand, or floor was. We then manually labeled each of the bananas from the frames as one of the 6 labels for ripeness. We held out a full flight rather than a random selection of frames, as frames half a second apart are nearly identical, so a random split would only test the model on frames it already knew of. On the held-out flight, the fine-tuned detector found 99% of bananas, compared with 77% for the original model, and 100% of distant bananas (those filling less than 1% of the frame), compared with just 20%. The ripeness classifier was also retrained on the same bananas, and its accuracy rose 60%. The original classifier labeled almost all the bananas from the drones view as rotten, while the finetuned one correctly labeled the bananas as ‘rotten’ and ‘freshripe’</p>
   </section>
 
   <section id="references">
@@ -191,6 +210,7 @@
       <li id="ref-yolo">Jocher, G. et al. <em>Ultralytics YOLOv8.</em> (2023). <a href="https://github.com/ultralytics/ultralytics">github.com/ultralytics/ultralytics</a></li>
       <li id="ref-mnv2">Sandler, M. et al. <em>MobileNetV2: Inverted Residuals and Linear Bottlenecks.</em> CVPR (2018).</li>
       <li id="ref-coco">Lin, T.-Y. et al. <em>Microsoft COCO: Common Objects in Context.</em> ECCV (2014).</li>
+      <li id="ref-adam">Kingma, D. P. &amp; Ba, J. <em>Adam: A Method for Stochastic Optimization.</em> ICLR (2015).</li>
     </ol>
   </section>
 </main>

@@ -1,0 +1,20 @@
+Brain:
+
+In Fruity-Fly, we involved over 24 brain cells called the Dng02, aiding in balance. These cells are split in left and right, with 13 on the left, and 11 on the right. When the drone fires an equal amount of cells, we increase thrust, and the drone moves forward. When you see an imbalance of brain cells, like firing more of the left cells than the right, the drone turns. Moreover, we have “driver” and “brake” cells involved, with usually more brake cells than driver. The driver cells fire more cells, while the brake fires cells less. Usually, we have more brake cells than we do driver cells, and if we want to fire more, then we usually have to decrease the brake cells. We naturally have more cell wires involved for the right side than the left, so, for example, if we issue a command to the right and left, the impact is going to be greater for the right than it is for the left, as it is stronger. We need to balance this in practice. 
+
+[ADD A interactive visual display for people to play around with] 
+
+	In Fruity-Fly, we have two circuits involved; the dodge circuit, and the balance circuit. The dodge circuit has 274 brain cells, while the balance circuit (which is made up of the balance and brain cells), has 144 cells. Notably, for the balance circuit, we have 24 balance cells, and 120 brain cells.
+
+You may ask, how does the fruit fly stay balanced in a situation where it's getting pushed by wind, and doesn’t register it as an actual signal to dodge? Well, we have wires that connect the balance to the dodge circuit, and when the wind gets strong on the drone, the balance circuit works hard to avoid the drone from drifting or swinging away, sending a “mini whisper” to the drone to not dodge yet/calm down. 
+	
+	Another question you might have: How does the drone not clock its view as a threat to itself, as movement can cause it to maybe think something is rushing towards it? To target this, the drone keeps a copy of every single movement that it takes. So, if the drone plans to move left, and does, it does not consider that to be a threat to its environment, as it views that as motion it planned itself. 
+
+Now, let’s move onto the “scared while eating effect”, where it combines the banana program, and the dodge circuit we have in the brain. In practice, the drone sees a banana, moves towards it, and then “hovers”, counting down its hunger from 100% to show that it is eating. If something waves in front of it, the giant fiber escape cell fires, and it moves back for 0.7 seconds, waits, and sees the banana, and comes back to start eating. It loops back this motion if a wave occurs in front of it back again. 
+
+Limits and assumptions. Real flies’ balance cells react to moving scenery, but the wiring map shows almost no connections from the eyes to them (137 of 12,848), so we feed the camera’s motion straight into the cells that drive them as our own shortcut. The balance cells have flown in a turn-only test, but not yet together with the banana hunt. They also slow each brain step from about 13 ms to 22 ms, and every timing comes from one laptop, so other machines may differ.
+
+
+
+
+
