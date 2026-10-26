@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
-const pages = ["index", "banana", "brain", "sdk", "sim"];
+const pages = ["index"];
 
 export default defineConfig({
   server: { open: true },

@@ -3,15 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FuityFly Whitepaper</title>
-<meta name="description" content="FuityFly: a DJI Tello drone steered by a spiking model of the fruit fly connectome.">
-<meta property="og:title" content="FuityFly: A Connectome-Driven Drone">
+<title>FruityFly Whitepaper</title>
+<meta name="description" content="FruityFly: a DJI Tello drone run by circuits from the fruit fly connectome. Brain, drone, banana model and simulation.">
+<meta property="og:title" content="FruityFly: A Connectome-Driven Drone">
 <meta property="og:description" content="A DJI Tello drone steered by a leaky integrate-and-fire model built from the FlyWire Drosophila connectome.">
 <meta property="og:type" content="article">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caladea:ital,wght@0,400;0,700;1,400;1,700&display=swap">
 <link rel="stylesheet" href="css/style.css">
 <script type="module" src="js/main.js"></script>
 </head>
@@ -21,171 +22,452 @@
 
 <main class="page">
   <header class="hero">
-    <p class="eyebrow">Whitepaper · Overview</p>
-    <h1>FuityFly: flying a drone with a fruit fly's brain</h1>
-    <p class="lede">We took the wiring diagram of a real <em>Drosophila</em> brain, simulated the neurons a fly uses to escape an approaching threat, and gave them control of a DJI Tello quadcopter.</p>
+    <h1>FruityFly</h1>
     <div class="byline">
-      <span><strong>Akshin Makkar</strong>, <strong>Parth Joshi</strong>, <strong>Amal Chalayil Sreekumar</strong></span>
-      <span class="meta">September 2026</span>
-    </div>
-    <div class="links">
-      <a href="https://github.com/Parth-Joshi0/Fly-Brain-Rover">Source code</a>
-      <a href="brain.html">Neural circuit</a>
-      <a href="#results">Flight results</a>
+      <p><strong>Authors:</strong> <a href="https://www.linkedin.com/in/akshin-makkar/">Akshin Makkar</a>, <a href="https://www.linkedin.com/in/parth-joshi16/">Parth Joshi</a>, <a href="https://www.linkedin.com/in/amalchalayilsreekumar/">Amal Chalayil Sreekumar</a></p>
+      <p><strong>GitHub:</strong> <a href="https://github.com/Parth-Joshi0/Fly-Brain-Rover">github.com/Parth-Joshi0/Fly-Brain-Rover</a></p>
     </div>
   </header>
 
-  <aside class="toc" id="toc"></aside>
-
-  <section id="motivation">
-    <h2><span class="sec">1</span>Motivation</h2>
-    <p>In 2023, the FlyWire consortium finished mapping every neuron and synapse in an adult fruit fly brain<sup class="fn"><a href="#ref-flywire">[2]</a></sup>. Shortly after, Shiu et al. showed that a simple leaky integrate-and-fire (LIF) model built directly from that wiring diagram could predict real sensorimotor behaviour, with no training involved<sup class="fn"><a href="#ref-shiu">[1]</a></sup>.</p>
-    <p>That raised a question we wanted to answer with hardware: <strong>can connectome-derived circuits act as the controller for a real robot?</strong> Drones are a natural fit. A fruit fly is itself a small, fast flyer, and one of its best-studied reflexes is escaping objects that loom towards it.</p>
-    <p>FuityFly is our answer. It is not a neural network we trained to fly. The circuit that decides when to dodge is a slice of the real connectome: 274 identified neurons connected by the synapses FlyWire recorded between them.</p>
-    <div class="note">
-      <p><strong>Key idea.</strong> No weights were learned. Connectivity comes from the connectome, and neuron dynamics come from the published LIF model. Our engineering work was the interface around the circuit: turning camera frames into the input the fly's visual neurons expect, and turning descending-neuron spikes into drone commands.</p>
+  <section id="video-demo" class="video-section">
+    <h2>Video Demo</h2>
+    <div class="video">
+      <iframe src="https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ" title="Video Demo (placeholder video)" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe>
     </div>
+    <p class="small muted"><span class="todo">TODO</span> placeholder video (Big Buck Bunny), swap in ours</p>
   </section>
 
-  <section id="system">
-    <h2><span class="sec">2</span>System architecture</h2>
-    <p>The same pipeline runs in simulation and on the real drone. Only the bottom layer, the drone interface, changes.</p>
+  <section id="video-explanation" class="video-section">
+    <h2>Video Explanation</h2>
+    <div class="video">
+      <iframe src="https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ" title="Video Explanation (placeholder video)" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe>
+    </div>
+    <p class="small muted"><span class="todo">TODO</span> placeholder video (Big Buck Bunny), swap in ours</p>
+  </section>
 
-    <figure>
-      <div class="fig-body">
-        <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Pipeline from camera through looming detection, fly brain, safety layer, to drone interface">
-          <defs>
-            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker>
-          </defs>
-          <!-- stages -->
-          <rect class="box" x="10" y="60" width="140" height="70" rx="6"/>
-          <text x="80" y="92" text-anchor="middle" font-size="14">Camera</text>
-          <text x="80" y="112" text-anchor="middle" class="t-sm">320×240 frames</text>
+  <section id="system-architecture">
+    <h2>System Architecture</h2>
+    <p><span class="todo">TODO</span></p>
 
-          <rect class="box" x="190" y="60" width="160" height="70" rx="6"/>
-          <text x="270" y="92" text-anchor="middle" font-size="14">Optic flow</text>
-          <text x="270" y="112" text-anchor="middle" class="t-sm">looming L / C / R</text>
+      <figure>
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 490" role="img" aria-label="System architecture: the Tello streams camera frames over Wi-Fi to the laptop. Each frame goes to the banana model (YOLOv8 detector, then MobileNetV2 ripeness) on its own thread, and to the fear brain (optic flow and looming, then the Brian2 connectome in a separate process). Banana boxes and Giant Fiber scares drive the feeding behaviour, whose command plus a DNg02 yaw nudge is sent back to the Tello. The command is also fed back to the fear brain as an efference copy">
+            <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
 
-          <rect class="box-strong" x="390" y="45" width="170" height="100" rx="6"/>
-          <text x="475" y="80" text-anchor="middle" font-size="14" font-weight="600">Fly brain</text>
-          <text x="475" y="100" text-anchor="middle" class="t-sm">Brian2 LIF · 274 neurons</text>
-          <text x="475" y="118" text-anchor="middle" class="t-sm">FlyWire v630</text>
+            <rect class="box dash" x="190" y="16" width="522" height="460" rx="8"/>
+            <text x="204" y="36" class="t-sm">LAPTOP · Drone/fly_tello.py · one pass per camera frame</text>
 
-          <rect class="box" x="600" y="60" width="130" height="70" rx="6"/>
-          <text x="665" y="92" text-anchor="middle" font-size="14">Safety layer</text>
-          <text x="665" y="112" text-anchor="middle" class="t-sm">bounds · limits</text>
+            <rect class="box-soft" x="20" y="300" width="150" height="110" rx="6"/>
+            <text x="95" y="330" text-anchor="middle" font-size="13" font-weight="600">DJI Tello</text>
+            <text x="95" y="350" text-anchor="middle" class="t-sm">front camera · 960×720</text>
+            <text x="95" y="366" text-anchor="middle" class="t-sm">onboard flight</text>
+            <text x="95" y="382" text-anchor="middle" class="t-sm">controller</text>
 
-          <path class="ln" d="M150 95H186" marker-end="url(#arr)"/>
-          <path class="ln" d="M350 95H386" marker-end="url(#arr)"/>
-          <path class="ln" d="M560 95H596" marker-end="url(#arr)"/>
-          <path class="ln" d="M730 95H770V60H790M770 95V170H790" />
-          <path class="ln" d="M770 60H796" marker-end="url(#arr)"/>
-          <path class="ln" d="M770 170H796" marker-end="url(#arr)"/>
+            <rect class="box" x="220" y="145" width="130" height="44" rx="6"/>
+            <text x="285" y="164" text-anchor="middle" font-size="13">Camera frame</text>
+            <text x="285" y="180" text-anchor="middle" class="t-sm">clean, nothing drawn</text>
 
-          <rect class="box-soft" x="800" y="35" width="92" height="50" rx="6"/>
-          <text x="846" y="58" text-anchor="middle" font-size="12.5">PyBullet</text>
-          <text x="846" y="75" text-anchor="middle" class="t-sm">sim</text>
-          <rect class="box-soft" x="800" y="145" width="92" height="50" rx="6"/>
-          <text x="846" y="168" text-anchor="middle" font-size="12.5">DJI Tello</text>
-          <text x="846" y="185" text-anchor="middle" class="t-sm">djitellopy</text>
+            <text x="390" y="72" class="t-sm">BANANA MODEL · own thread</text>
+            <rect class="box" x="390" y="82" width="140" height="56" rx="6"/>
+            <text x="460" y="106" text-anchor="middle" font-size="13">Detector</text>
+            <text x="460" y="124" text-anchor="middle" class="t-sm">YOLOv8n / YOLOv8s</text>
+            <rect class="box" x="550" y="82" width="140" height="56" rx="6"/>
+            <text x="620" y="106" text-anchor="middle" font-size="13">Ripeness</text>
+            <text x="620" y="124" text-anchor="middle" class="t-sm">MobileNetV2</text>
 
-          <!-- feedback -->
-          <path class="ln dash" d="M846 195V230H80V134" marker-end="url(#arr)"/>
-          <text x="460" y="224" text-anchor="middle" class="t-sm">next frame (30 Hz decision loop)</text>
-          <text x="475" y="30" text-anchor="middle" class="t-sm">DNp01 → escape · DNp06 → yaw · DNp03 → forward</text>
-        </svg>
+            <text x="390" y="186" class="t-sm">FEAR · FearBrain</text>
+            <rect class="box" x="390" y="196" width="140" height="56" rx="6"/>
+            <text x="460" y="220" text-anchor="middle" font-size="13">Optic flow</text>
+            <text x="460" y="238" text-anchor="middle" class="t-sm">looming · 320×240</text>
+            <rect class="box-strong" x="550" y="186" width="140" height="76" rx="6"/>
+            <text x="620" y="207" text-anchor="middle" font-size="13" font-weight="600">Fly brain</text>
+            <text x="620" y="224" text-anchor="middle" class="t-sm">Brian2 subprocess</text>
+            <text x="620" y="239" text-anchor="middle" class="t-sm">Giant Fiber · DNg02</text>
+            <text x="620" y="254" text-anchor="middle" class="t-sm">JSON over a pipe</text>
+
+            <rect class="box" x="390" y="300" width="300" height="70" rx="6"/>
+            <text x="540" y="322" text-anchor="middle" font-size="13" font-weight="600">Feeding behaviour</text>
+            <text x="540" y="342" text-anchor="middle" class="t-sm" style="font-size:10px">SCAN → APPROACH → LOOK → FEED → DONE → LAND</text>
+            <text x="540" y="358" text-anchor="middle" class="t-sm">SCARED: back off, wait, come back</text>
+
+            <rect class="box-strong" x="220" y="400" width="150" height="60" rx="6"/>
+            <text x="295" y="421" text-anchor="middle" font-size="13" font-weight="600">RC command</text>
+            <text x="295" y="438" text-anchor="middle" class="t-sm">lr · fb · ud · yaw</text>
+            <text x="295" y="453" text-anchor="middle" class="t-sm">+ DNg02 yaw nudge</text>
+
+            <path class="ln" d="M95 300V167H216" marker-end="url(#a1)"/>
+            <text x="103" y="240" class="t-sm">video · Wi-Fi</text>
+            <path class="ln" d="M285 145V110H386" marker-end="url(#a1)"/>
+            <path class="ln" d="M285 189V224H386" marker-end="url(#a1)"/>
+            <path class="ln" d="M530 110H546" marker-end="url(#a1)"/>
+            <path class="ln" d="M530 224H546" marker-end="url(#a1)"/>
+            <path class="ln" d="M690 110H702V335H694" marker-end="url(#a1)"/>
+            <text x="696" y="280" text-anchor="end" class="t-sm">banana</text>
+            <text x="696" y="292" text-anchor="end" class="t-sm">boxes</text>
+            <path class="ln-strong" d="M620 262V296" marker-end="url(#a1)"/>
+            <text x="612" y="284" text-anchor="end" class="t-sm">Giant Fiber: scare()</text>
+            <path class="ln" d="M470 370V430H374" marker-end="url(#a1)"/>
+            <path class="ln dash" d="M370 410H380V240H386" marker-end="url(#a1)"/>
+            <text x="374" y="300" text-anchor="end" class="t-sm">efference copy</text>
+            <text x="374" y="314" text-anchor="end" class="t-sm">(its own moves)</text>
+            <path class="ln" d="M220 430H95V414" marker-end="url(#a1)"/>
+            <text x="100" y="448" class="t-sm">send_rc_control</text>
+
+            <text x="400" y="448" class="t-sm">also every frame: HUD window, flight-log CSV,</text>
+            <text x="400" y="462" class="t-sm">video-stall check (hover at 0.5 s, land at 3 s)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1:</b>One pass of the flight loop on the real Tello. Everything except the drone runs on the laptop. In the simulator (<code>main.py</code>) PyBullet takes the Tello's place.</figcaption>
+      </figure>
+  </section>
+
+  <section id="brain">
+    <h2>Brain</h2>
+    <h3 id="brain-balance-cells">The DNg02 balance cells</h3>
+      <p>In FruityFly, we involved over 24 brain cells called the Dng02, aiding in balance. These cells are split in left and right, with 13 on the left, and 11 on the right. When the drone fires an equal amount of cells, we increase thrust, and the drone moves forward. When you see an imbalance of brain cells, like firing more of the left cells than the right, the drone turns. Moreover, we have “driver” and “brake” cells involved, with usually more brake cells than driver. The driver cells fire more cells, while the brake fires cells less. Usually, we have more brake cells than we do driver cells, and if we want to fire more, then we usually have to decrease the brake cells. We naturally have more cell wires involved for the right side than the left, so, for example, if we issue a command to the right and left, the impact is going to be greater for the right than it is for the left, as it is stronger. We need to balance this in practice.</p>
+
+    <h3 id="brain-circuits">Two circuits</h3>
+      <p>In FruityFly, we have two circuits involved; the dodge circuit, and the balance circuit. The dodge circuit has 274 brain cells, while the balance circuit (which is made up of the balance and brain cells), has 144 cells. Notably, for the balance circuit, we have 24 balance cells, and 120 brain cells.</p>
+
+    <h3 id="brain-wind">Staying balanced in the wind</h3>
+      <p>You may ask, how does the fruit fly stay balanced in a situation where it's getting pushed by wind, and doesn’t register it as an actual signal to dodge? Well, we have wires that connect the balance to the dodge circuit, and when the wind gets strong on the drone, the balance circuit works hard to avoid the drone from drifting or swinging away, sending a “mini whisper” to the drone to not dodge yet/calm down.</p>
+
+    <h3 id="brain-own-motion">Ignoring its own movement</h3>
+      <p>Another question you might have: How does the drone not clock its view as a threat to itself, as movement can cause it to maybe think something is rushing towards it? To target this, the drone keeps a copy of every single movement that it takes. So, if the drone plans to move left, and does, it does not consider that to be a threat to its environment, as it views that as motion it planned itself.</p>
+
+    <h3 id="brain-scared-eating">Scared while eating</h3>
+      <p>Now, let’s move onto the “scared while eating effect”, where it combines the banana program, and the dodge circuit we have in the brain. In practice, the drone sees a banana, moves towards it, and then “hovers”, counting down its hunger from 100% to show that it is eating. If something waves in front of it, the giant fiber escape cell fires, and it moves back for 0.7 seconds, waits, and sees the banana, and comes back to start eating. It loops back this motion if a wave occurs in front of it back again.</p>
+
+    <h3 id="brain-limits">Limits and assumptions</h3>
+      <p>Real flies’ balance cells react to moving scenery, but the wiring map shows almost no connections from the eyes to them (137 of 12,848), so we feed the camera’s motion straight into the cells that drive them as our own shortcut. The balance cells have flown in a turn-only test, but not yet together with the banana hunt. They also slow each brain step from about 13 ms to 22 ms, and every timing comes from one laptop, so other machines may differ.</p>
+  </section>
+
+  <section id="drone">
+    <h2>Drone</h2>
+    <h3 id="drone-choosing">Choosing a drone</h3>
+      <p>The key goal of this project was putting the actual fruit fly brain onto a drone, and running the brain in real life. It just wouldn’t be the same without an actual drone, but being broke university students, our budget was pretty limited. If we had our full unlimited budget (sponsor us please and thank you) we wanted to build the drone ourselves, but instead opted for buying a pre-built second-hand drone off facebook marketplace. The drone we chose was the DJI Tello by Ryze Tech. The reasons for choosing this drone were pretty simple: it had its own flight controller, a python library to control it using our laptops over wifi, a live forward facing camera, and the biggest thing of all it fit within our budget of $100. This drone, as much as I love it, still had its issues. The main ones being the drone did not have a distance sensor, collision sensor, no GPS, unreliable speed reading and a bad battery. Maybe these limitations only kept us closer to a real fruit fly, which mainly relies on their eyes.</p>
+
+      <figure>
+        <div class="fig-body">
+          <img src="assets/tello.png" alt="The DJI Tello: a small white-and-black quadcopter with propeller guards and a forward-facing camera on its nose" width="513" height="314">
+        </div>
+        <figcaption><b>Figure 2:</b>The DJI Tello by Ryze Tech.</figcaption>
+      </figure>
+
+    <h3 id="drone-simulator-first">Simulator first</h3>
+      <p>Because we only had one drone, and didn’t want to break it, one thing we did was implement a simulation of the drone for testing everything before we put it on the drone. Go to the <a href="#simulation">Simulator Section</a> for more info on the simulator.</p>
+
+    <h3 id="drone-hardware-bugs">Hardware bugs</h3>
+      <p>However, even with the code working in the simulator, that did not mean there were no hardware bugs. When we first ported the code, we were having an issue with the escape neurons firing falsely. After some testing, the source of this was found to be the Auto-Exposure on the Drone’s camera, when warming up. The fix for this was a longer warm up (~3s) which fixed the false escapes. Another issue was the tello’s specs say 82.6° for the field of view (FOV), but that’s the diagonal spec, and we needed the vertical spec to convert pixel motion into angles. Working from the diagonal frame and 4:3 frame gave us 55.6°. This number is what turns the banana grew X pixels into an angle. After porting we also had to calibrate the rotation, as in the simulation we had 75 px per rad (How many pixels the image shifts when the drone rotates 1 radian), vs about 200-260 px per rad on the drone. With the simulator’s value the steering loop would have left part of the drone’s own turn in the signal, causing it to chase it’s own turn instead of correcting it.</p>
+
+    <h3 id="drone-testing-steps">Testing in steps</h3>
+      <p>Testing on the drone meant that a mistake could mean losing a propeller, so we moved to the hardware in steps. The first steps were just basic connectivity and battery tests. Then we did some propellers off tests with the camera and escape neurons, just checking if it would fire if we swatted a hand at it. Only then did we let it fly, but that too was limited. The drone could only hover, or dodge if a swat came, with a hard auto land time after 60s. The DNg02 stabilizer went through the same steps as well. First we calibrated the rotation, with the propellers off, turning the drone by hand. Next came a test with a textured card, which we swept across the front to test the neurons were firing as intended. Then and only after all those successful tests did we implement the full banana behaviour. While flying there were also some emergency commands, <kbd>q</kbd> for quitting and landing safely, <kbd>x</kbd> for stopping the motors in an emergency.</p>
+
+      <figure>
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 340" role="img" aria-label="Testing steps: connectivity and battery, then two tracks. Escape: propellers-off swat test, then limited hover-and-dodge flight. DNg02: rotation calibration by hand, then textured card sweep. Both lead to the full banana behaviour">
+            <defs><marker id="t1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
+            <circle cx="40" cy="80" r="8" class="fill-strong"/>
+            <path class="ln" d="M48 80H86" marker-end="url(#t1)"/>
+
+            <text x="290" y="34" class="t-sm">ESCAPE NEURONS</text>
+            <text x="290" y="144" class="t-sm">DNg02 STABILIZER</text>
+
+            <rect class="box-soft" x="90" y="52" width="170" height="56" rx="22"/>
+            <text x="175" y="76" text-anchor="middle" font-size="12.5">connectivity</text>
+            <text x="175" y="94" text-anchor="middle" font-size="12.5">+ battery</text>
+
+            <rect class="box" x="290" y="52" width="180" height="56" rx="22"/>
+            <text x="380" y="76" text-anchor="middle" font-size="12.5">props off</text>
+            <text x="380" y="94" text-anchor="middle" class="t-sm">swat a hand at it</text>
+
+            <rect class="box" x="500" y="52" width="180" height="56" rx="22"/>
+            <text x="590" y="76" text-anchor="middle" font-size="12.5">limited flight</text>
+            <text x="590" y="94" text-anchor="middle" class="t-sm">hover / dodge · land at 60 s</text>
+
+            <rect class="box" x="290" y="162" width="180" height="56" rx="22"/>
+            <text x="380" y="186" text-anchor="middle" font-size="12.5">props off</text>
+            <text x="380" y="204" text-anchor="middle" class="t-sm">turn by hand: rotation</text>
+
+            <rect class="box" x="500" y="162" width="180" height="56" rx="22"/>
+            <text x="590" y="186" text-anchor="middle" font-size="12.5">textured card</text>
+            <text x="590" y="204" text-anchor="middle" class="t-sm">swept across the front</text>
+
+            <rect class="box-strong" x="290" y="262" width="390" height="44" rx="22"/>
+            <text x="485" y="289" text-anchor="middle" font-size="13" font-weight="600">full banana behaviour</text>
+
+            <path class="ln" d="M260 80H286" marker-end="url(#t1)"/>
+            <path class="ln" d="M470 80H496" marker-end="url(#t1)"/>
+            <path class="ln" d="M175 108V190H286" marker-end="url(#t1)"/>
+            <path class="ln" d="M470 190H496" marker-end="url(#t1)"/>
+            <path class="ln" d="M680 80H704V284H684" marker-end="url(#t1)"/>
+            <path class="ln" d="M590 218V258" marker-end="url(#t1)"/>
+
+            <text x="485" y="332" text-anchor="middle" class="t-sm">any time in the air: q = quit and land safely · x = stop the motors</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3:</b>The order we moved onto the hardware in. Each arrow was only taken once the step before it worked.</figcaption>
+      </figure>
+  </section>
+
+  <section id="banana">
+    <h2>Banana Model</h2>
+    <h3 id="banana-overview">Feeding</h3>
+      <p>One key behaviour of the fruit fly we wanted to model in our drone was the feeding. Now due to limitations on our laptops and sanity, we decided to stick with only Bananas, and their different types of ripeness: freshripe, freshunripe, overripe, ripe, rotten, unripe. So our goal was that the drone captures images through its camera, checking if any bananas exist and if they do, then classify them into one of six categories, with the fly choosing to go to the ones that are most rotten. To do this, we built a 2 stage pipeline - a pretrained detector that locates the banana, and passes it onto a classifier we built that judges the ripeness.</p>
+
+      <figure>
+        <div class="fig-body">
+          <div class="pipe">
+            <div class="pipe-step">
+              <img src="assets/pipeline_frame.jpg" alt="Tello camera frame of a banana on a footstool, with the YOLO bounding box and the padded crop box drawn around it" width="960" height="720">
+              <p><b>1 · Detect</b>YOLOv8 finds the banana, 97% sure</p>
+            </div>
+            <div class="pipe-arrow" aria-hidden="true">→</div>
+            <div class="pipe-step pipe-crop">
+              <img src="assets/pipeline_crop.jpg" alt="The banana cropped out of the frame and resized to 224 by 224 pixels" width="224" height="224">
+              <p><b>2 · Crop</b>+8% each side, 224 × 224</p>
+            </div>
+            <div class="pipe-arrow" aria-hidden="true">→</div>
+            <div class="pipe-step">
+              <div class="probs" role="img" aria-label="Classifier output: freshripe 95.4%, rotten 4.5%, every other class under 0.1%">
+                <div class="prob top"><span>freshripe</span><i style="width:95.4%"></i><em>95.4%</em></div>
+                <div class="prob"><span>rotten</span><i style="width:4.5%"></i><em>4.5%</em></div>
+                <div class="prob"><span>ripe</span><i style="width:0"></i><em>0.0%</em></div>
+                <div class="prob"><span>unripe</span><i style="width:0"></i><em>0.0%</em></div>
+                <div class="prob"><span>freshunripe</span><i style="width:0"></i><em>0.0%</em></div>
+                <div class="prob"><span>overripe</span><i style="width:0"></i><em>0.0%</em></div>
+              </div>
+              <p><b>3 · Classify</b>MobileNetV2 picks the most likely class</p>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Figure 4:</b>The pipeline on a real frame from our 23 October flight (<code>Drone/flight_frames/</code>). Yellow is the YOLO box, white is the box after the 8% expansion. Detector: fine-tuned YOLOv8n at 960 px. Classifier: the original checkpoint.</figcaption>
+      </figure>
+
+    <h3 id="banana-stages">Connecting the two stages</h3>
+      <p>Now a bit on how the two stages are connected. Each frame from the drone’s eyes is sent to the YOLOv8 model, which returns a bounding box around every banana it finds. Because the bounding box is often a bit tight, each box is expanded by 8% of its width and height so that the tips of the bananas aren’t cut off. The banana is then cropped out of the frame and resized to 224 x 224 pixels, and normalized using the ImageNet mean and standard deviation. Then each of the bananas are fed into the MobileNetV2, which will output a probability between 0-1 for each of the 6 banana classes, with the most likely of the classes, becoming the label of the banana. The final output from this stage is a list of the banana bounding box, YOLO’s confidence that it’s a banana, the label for the banana, and the classifier’s confidence on the label. The decision to split the process into 2 stages, helped with us not having to draw the bounding boxes for the training - YOLO already knew what a banana is, we could just use a dataset containing the bananas grouped by the classes. It also meant that we could upgrade each of the 2 stages separately, which we did by swapping in a larger YOLO model, when the drone is hovering. The full pipeline runs at ~22 frames per second with the smaller model (Drone is moving), and at about ~11 frames per second with the larger YOLO model (Drone is hovering / sharp eyes detector)</p>
+
+      <figure>
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 470" role="img" aria-label="Activity diagram: each frame goes to YOLOv8 nano while the drone is moving, or to the larger YOLOv8 small sharp-eyes detector while it hovers, then both paths go to the MobileNetV2 classifier">
+            <defs><marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
+            <circle cx="360" cy="18" r="9" class="fill-strong"/>
+            <path class="ln" d="M360 27V50" marker-end="url(#b2)"/>
+
+            <rect class="box" x="260" y="54" width="200" height="40" rx="18"/>
+            <text x="360" y="79" text-anchor="middle" font-size="13">Tello frame · 960×720</text>
+            <path class="ln" d="M360 94V118" marker-end="url(#b2)"/>
+
+            <path class="box-soft" d="M360 122 470 166 360 210 250 166Z"/>
+            <text x="360" y="162" text-anchor="middle" font-size="12.5">drone hovering,</text>
+            <text x="360" y="178" text-anchor="middle" font-size="12.5">scanning for food?</text>
+
+            <path class="ln" d="M250 166H140V238" marker-end="url(#b2)"/>
+            <text x="196" y="156" text-anchor="middle" class="t-sm">no · moving</text>
+            <path class="ln" d="M470 166H580V238" marker-end="url(#b2)"/>
+            <text x="524" y="156" text-anchor="middle" class="t-sm">yes · hovering</text>
+
+            <rect class="box" x="30" y="242" width="220" height="78" rx="18"/>
+            <text x="140" y="268" text-anchor="middle" font-size="13" font-weight="600">YOLOv8 nano</text>
+            <text x="140" y="287" text-anchor="middle" class="t-sm">conf ≥ 20%</text>
+            <text x="140" y="304" text-anchor="middle" class="t-sm">pipeline ~22 fps</text>
+
+            <rect class="box-strong" x="470" y="242" width="220" height="78" rx="18"/>
+            <text x="580" y="268" text-anchor="middle" font-size="13" font-weight="600">YOLOv8 small</text>
+            <text x="580" y="287" text-anchor="middle" class="t-sm">"sharp eyes" · conf ≥ 30%</text>
+            <text x="580" y="304" text-anchor="middle" class="t-sm">pipeline ~11 fps</text>
+
+            <path class="ln" d="M140 320V350H330" marker-end="url(#b2)"/>
+            <path class="ln" d="M580 320V350H390" marker-end="url(#b2)"/>
+            <path class="box-soft" d="M360 332 390 350 360 368 330 350Z"/>
+            <path class="ln" d="M360 368V392" marker-end="url(#b2)"/>
+
+            <rect class="box" x="240" y="396" width="240" height="40" rx="18"/>
+            <text x="360" y="421" text-anchor="middle" font-size="13">crop → MobileNetV2 ripeness</text>
+            <path class="ln" d="M360 436V448" marker-end="url(#b2)"/>
+            <circle cx="360" cy="459" r="9" class="box"/>
+            <circle cx="360" cy="459" r="5" class="fill-strong"/>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5:</b>Which detector looks at a frame. In code the sharp-eyes detector is used while the drone holds still to look: the pauses in a scan, LOOK, and WAIT after 1.5 s without finding the banana (<code>wants_zoom</code> in <code>feeding_behaviour.py</code>).</figcaption>
+      </figure>
+
+    <h3 id="banana-detector">Stage one: YOLOv8</h3>
+      <p>In the first stage of the pipeline, we used the YOLOv8 (You Only Look Once) model, which is an object detector that finds every object in an image in just one pass of the network. It predicts a bounding box, and a set of class scores for each object. We used the nano version of the model, pretrained by Ultralytics, which consists of roughly 3.2 million parameters. One of these classes - Class 46 - is “banana”, so instead of training our own detector, we restricted the YOLO model to that class. A detection is only treated as food if the YOLO is 20% confident it is a banana (30% for the sharp-eyes detector). The main change we made was the image resolution. By default, YOLO shrinks the image to 640 px on its longest side, but the Tello’s image resolution is 960 x 720. A banana kept at a distance away with the defaults would lose \(1 - (640/960)^2 \approx 56\%\) of its pixels before YOLO can even see it. Running the YOLO model at the full 960 pixels raised the detection rate of a banana filling in 1.5% of the frame from 1 in 12 frames to 9 in 12 frames. This however, extra increase in performance caused roughly double the processing time. This was a trade that we deemed to be worth it. For bananas even farther away, we added a “sharp-eyes” mode using the larger YOLOv8 model and a confidence threshold of 30%. For banana’s filling in 1% of the frame, it found bananas in 22 of 24 frames compared to the smaller YOLOv8 nano, which only found it in 7 of 24 frames. Since it is about twice as slow, this only kicks in when the drone is hovering in place scanning for food, so that the control loop is fast enough for the other neurons and actions.</p>
+
+    <h3 id="banana-dataset">Dataset</h3>
+      <p>Before we get into the second stage of the pipeline, I wanted to take a moment to talk about the dataset that we used to train the second model. This dataset came from Roboflow and it consisted of 5616 images of bananas, all classified according to the ripeness. The images in the dataset contained 3931 for training, 1123 for validation and 562 for testing. The dataset was skewed however, with heavy class imbalance in which rotten had 1340 training images while unripe had only 133 images. Another issue with the dataset was that the images in the dataset were close-up and well-lit, compared to the actual shots from the drone where they are instead from greater distances, as well as varying lighting conditions and sometimes motions as well. The training images also had an augmentation applied during training, to avoid overfitting. These augmentations were horizontal flips, rotations of up to 15°, and had their brightness, contrast and saturation vary by up to 20%</p>
+
+      <div class="eq">$$\begin{bmatrix}x'\\ y'\end{bmatrix} = \begin{bmatrix}\cos\theta & -\sin\theta\\ \sin\theta & \cos\theta\end{bmatrix}\begin{bmatrix}x - c_x\\ y - c_y\end{bmatrix} + \begin{bmatrix}c_x\\ c_y\end{bmatrix}, \qquad \theta \sim \mathcal{U}(-15^\circ,\ 15^\circ)$$<span class="eq-num">(1)</span></div>
+      <p class="small muted">Each pixel \((x, y)\) is rotated about the image centre \((c_x, c_y)\) by a new random angle \(\theta\) every time the image is loaded (<code>transforms.RandomRotation(15)</code> in <code>BananaModel/dataset.py</code>).</p>
+
+      <figure>
+        <div class="fig-body">
+          <div class="rot-row">
+            <div><img src="assets/pipeline_crop.jpg" alt="Banana crop rotated by minus 15 degrees" style="transform:rotate(15deg)"><span>θ = −15°</span></div>
+            <div><img src="assets/pipeline_crop.jpg" alt="Banana crop, not rotated"><span>θ = 0°</span></div>
+            <div><img src="assets/pipeline_crop.jpg" alt="Banana crop rotated by plus 15 degrees" style="transform:rotate(-15deg)"><span>θ = +15°</span></div>
+          </div>
+        </div>
+        <figcaption><b>Figure 6:</b>The original crop from Figure 4 and the two ends of the rotation range.</figcaption>
+      </figure>
+
+    <h3 id="banana-classifier">Stage two: MobileNetV2</h3>
+      <p>The second stage of the pipeline consists of the MobileNetV2 model. The reason we chose this model over any of the other models was that it’s small, roughly 2.23 million parameters and it’s fast on a laptop’s CPU. MobileNetV2 achieves this by replacing the standard convolutions for depthwise separable convolutions, which filter each colour channel separately before combining them. This allows it to cut the amount of calculations needed drastically while still keeping most of the accuracy. Because we had a limited dataset size (~4000 training images) we used transfer learning. This is a technique in which instead of retraining the whole model, we freeze the beginning layers of the model. For us, we started with MobileNetV2 which has been trained across ImageNet, a dataset containing over 1 million images, and 1000 categories, so it had already learnt how to recognize edges, colours and textures. We then froze all those feature layers, not letting their weights shift and replaced the model’s original 1000 class output layer to our custom six class output layer. The new layer applies dropout with a rate of about 20%, randomly switching off a fifth of the features so the model doesn’t rely too heavily on any single feature, followed by a linear layer that maps the 1280 features down to 6 scores. A softmax function is then applied turning these scores into a probability, and the class with the highest probability becomes the class of the banana. As a result of our earlier efforts, only 7686 of the model’s 2.23 million parameters were trained by us, about 0.34% of the network. This made training fast and reduced the risk of overfitting on our small dataset. The new layer was trained with cross-entropy loss and the Adam optimizer with a learning rate of 0.001, in batches of 32 images. After every pass of the training data (an epoch), we tested the accuracy of the model on the validation set, and saved a copy of the best found weights so far. Training was run for up to 50 epochs, stopping earlier if no improvement was found for 10 epochs in a row. This was to prevent memorizing the training images, after it had stopped getting better at classifying bananas. The final model took about 19 ms to classify a banana on a laptop CPU.</p>
+      <p class="small muted">The linear layer gives six scores \(z_1, \dots, z_6\). Softmax turns them into probabilities that add up to 1:</p>
+      <div class="eq">$$p_c = \frac{e^{z_c}}{\sum_{k=1}^{6} e^{z_k}}, \qquad \hat{y} = \arg\max_c\, p_c$$<span class="eq-num">(2)</span></div>
+
+    <h3 id="banana-results">Results</h3>
+      <p>We evaluated the classifier on a test set of the dataset of 562 images, that were never used during training or model selection. It correctly classified 526 of them, with an accuracy of 93.6%. With our classes being so unbalanced we also reported the F1 macro score which weighs each class equally, regardless of the amount of images in them. This was 92%, showing the model works well across all the classes, not just the ones with the most images. Most mistakes (22 of 36 errors) were between neighbouring classes, which makes sense as bananas at adjacent stages can look quite similar. The weakest class was ripe with a recall of 78.8%. I suspect there are 2 reasons involved for this. The first reason being since it is in the middle of the classes, it can be confused with both adjacencies: freshripe and overripe. Of the mistakes 9 ripe bananas were labeled fresh ripe, and 6 over ripe were labeled ripe. The other reason being that both of these neighbouring classes have a decent bit more training images, 704 for freshripe, and 783 for overripe. This likely pulled the borderline images towards them. One unusual pattern was occasional confusion between rotten and unripe. This could be because heavily browned bananas and deep green bananas are both dark, but we did not investigate this further. In terms of speed, the classifier takes about 19 ms per banana, and the full pipeline runs at 22 fps. Since the Tello drone streams at 30 frames, this is fast enough to process most frames as they arrive. These results are on the test set though, and not on the flight tests which the next section is about.</p>
+
+      <figure>
+        <div class="table-wrap cm">
+          <table>
+            <thead><tr><th>true ↓ · predicted →</th><th class="num"><code>freshripe</code></th><th class="num"><code>freshunripe</code></th><th class="num"><code>overripe</code></th><th class="num"><code>ripe</code></th><th class="num"><code>rotten</code></th><th class="num"><code>unripe</code></th></tr></thead>
+            <tbody>
+            <tr><th scope="row"><code>freshripe</code></th><td class="num dark" style="--a:1.00">101</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.02">1</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td></tr>
+            <tr><th scope="row"><code>freshunripe</code></th><td class="num" style="--a:0.00">·</td><td class="num dark" style="--a:1.00">83</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td></tr>
+            <tr><th scope="row"><code>overripe</code></th><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num dark" style="--a:1.00">107</td><td class="num" style="--a:0.10">6</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td></tr>
+            <tr><th scope="row"><code>ripe</code></th><td class="num" style="--a:0.15">9</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num dark" style="--a:0.68">41</td><td class="num" style="--a:0.03">2</td><td class="num" style="--a:0.00">·</td></tr>
+            <tr><th scope="row"><code>rotten</code></th><td class="num" style="--a:0.07">4</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.10">6</td><td class="num" style="--a:0.03">2</td><td class="num dark" style="--a:1.00">169</td><td class="num" style="--a:0.07">4</td></tr>
+            <tr><th scope="row"><code>unripe</code></th><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.00">·</td><td class="num" style="--a:0.03">2</td><td class="num" style="--a:0.42">25</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption><b>Figure 7:</b>Confusion matrix on the 562 test images (from <code>BananaModel/README.md</code>). Rows are the true class, columns what the classifier said. The diagonal is correct, and the darker a cell, the more images landed there. Most off-diagonal counts sit next to the diagonal: neighbouring ripeness levels.</figcaption>
+      </figure>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Class</th><th class="num">Recall</th><th class="num">Precision</th><th class="num">F1</th></tr></thead>
+          <tbody>
+            <tr><td><code>freshripe</code></td><td class="num">99.0%</td><td class="num">88.6% (101/114)</td><td class="num">93.5%</td></tr>
+            <tr><td><code>freshunripe</code></td><td class="num">100%</td><td class="num">100% (83/83)</td><td class="num">100%</td></tr>
+            <tr><td><code>overripe</code></td><td class="num">94.7%</td><td class="num">94.7% (107/113)</td><td class="num">94.7%</td></tr>
+            <tr><td><code>ripe</code></td><td class="num">78.8%</td><td class="num">82.0% (41/50)</td><td class="num">80.4%</td></tr>
+            <tr><td><code>rotten</code></td><td class="num">91.4%</td><td class="num">97.7% (169/173)</td><td class="num">94.4%</td></tr>
+            <tr><td><code>unripe</code></td><td class="num">92.6%</td><td class="num">86.2% (25/29)</td><td class="num">89.3%</td></tr>
+          </tbody>
+          <tfoot><tr><td>Macro average</td><td class="num">92.7%</td><td class="num">91.5%</td><td class="num">92.0%</td></tr></tfoot>
+        </table>
       </div>
-      <figcaption><b>Fig. 1</b>The FuityFly control loop. The <code>DroneInterface</code> abstraction means the brain, vision and safety code are the same whether commands reach the PyBullet simulator or the real Tello.</figcaption>
-    </figure>
 
-    <ol>
-      <li><strong>Vision.</strong> Dense optic flow turns each frame into how fast the image is expanding in the left, centre and right of view. Expansion is roughly 2 divided by time-to-contact.</li>
-      <li><strong>Brain.</strong> Expansion drives Poisson spike input into 268 looming-sensitive visual projection neurons (LC4, LPLC2). The circuit is simulated for 20 ms per decision.</li>
-      <li><strong>Readout.</strong> Firing rates of six descending neurons become three signals: <em>escape</em>, <em>yaw</em> and <em>forward</em>.</li>
-      <li><strong>Action.</strong> A controller turns those signals into CRUISE, AVOID or a committed ESCAPE manoeuvre. A safety layer enforces limits and boundaries before commands reach the drone.</li>
-    </ol>
+    <h3 id="banana-real-world">Real-world tests</h3>
+      <p>In the real world tests, we found a couple of issues. The label sometimes flicked between rotten and fresh ripe from frame to frame. We believe this was due to the mismatch between the close up well-lit training photos and the photos from the drone which had varying lighting and distance. To reduce the flicker, we smoothed the ripeness label over the last 5 frames, by taking the most common prediction, so a single wrong frame can no longer change the drone’s decision. With this in place the drone chooses the most rotten banana in its view to go eat from just as real fruit flies do. The detector also has some limitations as well. Because we had not yet fine tuned the YOLO on our settings, it could sometimes miss bananas that are weirdly shaped or oriented, or partly hidden.</p>
+
+    <h3 id="banana-fine-tuning">Fine-tuning on our own flights</h3>
+      <p>To close the gap between the real world tests and the out of the box models, we ended up fine tuning both stages of the pipeline from our own flights. We started by adding another parameter (<code>--save-frames</code>) to save the frames of the flight twice every second. This was run with 6 practice flights, where we then saved the last flight for validation. A much larger YOLO Model (YOLO11x) was then run over those frames to classify the bananas on each frame. It was then reviewed and verified by us, to make sure all the bananas were in the correct bounding box and there were no other random bounding boxes. Frames with no bananas were also kept, so the model knew when not to classify a banana and what a wall, hand, or floor was. We then manually labeled each of the bananas from the frames as one of the 6 labels for ripeness. We held out a full flight rather than a random selection of frames, as frames half a second apart are nearly identical, so a random split would only test the model on frames it already knew of. On the held-out flight, the fine-tuned detector found 99% of bananas, compared with 77% for the original model, and 100% of distant bananas (those filling less than 1% of the frame), compared with just 20%. The ripeness classifier was also retrained on the same bananas, and its accuracy rose 60%. The original classifier labeled almost all the bananas from the drones view as rotten, while the finetuned one correctly labeled the bananas as ‘rotten’ and ‘freshripe’</p>
   </section>
 
-  <section id="behaviours">
-    <h2><span class="sec">3</span>Two behaviours</h2>
-    <div class="cards">
-      <div class="card">
-        <small>BEHAVIOUR A</small>
-        <h3>Looming escape</h3>
-        <p>When something approaches fast, the Giant Fiber pathway (DNp01) fires and the drone commits to a roughly 1 s sideways and backward dodge, as a fly jumps away from a swatter.</p>
+  <section id="simulation">
+    <h2>Simulation</h2>
+    <h3 id="simulation-why">Why do we need the Simulator?</h3>
+      <p>We used PyBullet to simulate the technology before we ever tested it with the drone for 3 main reasons. Firstly, and most importantly, drones are really expensive, and we are 3 university students that lack the funds for a second drone. Now, this is the main reason that if a plane or car is to be tested, it will go through several stages where each part is simulated under load so that real money and material does not have to be wasted. Now the second reason is that running simulations are much more time efficient when getting the technology to work. For example, if we were to test the escape neuron, DNp06, we would have to set up the drone, and lunge at it every time we wanted to test small code changes. Having the simulation allows us to test these small code changes without having to use the drone, which brings me into the last reason: there is only one drone between the three of us. Due to there only being one drone, if for example, someone made a change to the optical flow and wanted to test it, but another person is testing another part of the software that they changed, this will create a queue that will slow down the development. In summary, the simulations allow us repetition, no queue to test, the ability to break things for free, and most importantly confidence in testing it with the real drone.</p>
+
+    <h3 id="simulation-framework">Framework (PyBullet)</h3>
+      <p>As previously mentioned, we are using the framework PyBullet for our simulation. PyBullet is an open-source Python library that is used for physics simulations. In our case, it allows us to track and test masses, forces, torques, collisions, etc., and do this all for free. Along with it being free, we chose to use it over other physics engines because the rest of our code is written in python, so it made connecting what we wanted to test to the simulation a lot easier. PyBullet not only allows us to simulate physics, but also allows us to render in a camera and respond to keyboard/mouse events. With the camera rendering, we are able to feed what the camera sees into the other models that we created, to test. So, for example, if we wanted to test optical flow, we would feed the camera into the optical flow model and then move objects towards the camera to see if optical flow is really working.</p>
+
+    <h3 id="simulation-clocks">The Two Clocks</h3>
+      <p>Now we are going to get into the technical nitty-gritty. The drone runs with 2 clocks, a physics clock and a decision clock. The decision clock runs at 30 Hz (33 ms), measures how the picture changed, and based on that chooses what it wants to do. Once it makes a decision, it sets a target (forward speed, sideways speed, spin rate and climb direction) for what to do in that situation, such as “move to the left at 1 m/s”. The physics clock on the drone deals with the interactions and collisions and runs at 240 Hz, which is 8 ticks for every decision tick. On each of these ticks, the drone checks for collisions then works toward the target through a chain of corrections. The speed error becomes wanted lean, the lean error becomes twist, and the altitude error becomes push. Right before the speed error becomes a lean, the drone also runs a safety net that checks how close the nearest obstacle is. If something is too close, the safety net overrides the target, either by stopping the drone from going forward or by making it back away if the obstacle is really close, so it can veto any command no matter where it came from. Then the physics engine steps the world forward once. Since the safety net runs on every physics tick and not just every decision tick, it can react within 4 ms and not 33.</p>
+
+    <h3 id="simulation-what">What are we simulating?</h3>
+
+      <figure>
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Simulator loop: the world is seen by the eye, the picture goes to the brain on the 30 Hz decision clock, the brain sets a target for the body on the 240 Hz physics clock, and the body moves through the world">
+            <defs><marker id="w1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="fill-ink"/></marker></defs>
+
+            <rect class="box-soft" x="20" y="104" width="170" height="104" rx="6"/>
+            <text x="105" y="128" text-anchor="middle" font-size="13" font-weight="600">World</text>
+            <text x="105" y="148" text-anchor="middle" class="t-sm">striped walls + box</text>
+            <text x="105" y="164" text-anchor="middle" class="t-sm">finish line at 16 m</text>
+            <text x="105" y="180" text-anchor="middle" class="t-sm">thrown block</text>
+            <text x="105" y="196" text-anchor="middle" class="t-sm">banana photo card</text>
+
+            <rect class="box" x="230" y="20" width="200" height="74" rx="6"/>
+            <text x="330" y="45" text-anchor="middle" font-size="13" font-weight="600">Eyes</text>
+            <text x="330" y="65" text-anchor="middle" class="t-sm">camera · 320×240 · 30 fps</text>
+            <text x="330" y="81" text-anchor="middle" class="t-sm">tilts with the body</text>
+
+            <rect class="box-strong" x="480" y="20" width="220" height="74" rx="6"/>
+            <text x="590" y="45" text-anchor="middle" font-size="13" font-weight="600">Brain</text>
+            <text x="590" y="65" text-anchor="middle" class="t-sm">decision clock · 30 Hz</text>
+            <text x="590" y="81" text-anchor="middle" class="t-sm">optic flow → circuits</text>
+
+            <rect class="box" x="380" y="200" width="320" height="86" rx="6"/>
+            <text x="540" y="223" text-anchor="middle" font-size="13" font-weight="600">Body</text>
+            <text x="540" y="243" text-anchor="middle" class="t-sm">floating box · physics clock 240 Hz</text>
+            <text x="540" y="259" text-anchor="middle" class="t-sm">8 physics ticks per decision</text>
+            <text x="540" y="275" text-anchor="middle" class="t-sm">safety net checked every tick</text>
+
+            <path class="ln" d="M105 104V57H226" marker-end="url(#w1)"/>
+            <text x="160" y="48" text-anchor="middle" class="t-sm">what it sees</text>
+            <path class="ln" d="M430 57H476" marker-end="url(#w1)"/>
+            <text x="453" y="48" text-anchor="middle" class="t-sm">picture</text>
+            <path class="ln" d="M590 94V196" marker-end="url(#w1)"/>
+            <text x="582" y="140" text-anchor="end" class="t-sm">target: forward,</text>
+            <text x="582" y="155" text-anchor="end" class="t-sm">sideways, spin, climb</text>
+            <path class="ln" d="M380 243H105V212" marker-end="url(#w1)"/>
+            <text x="245" y="235" text-anchor="middle" class="t-sm">moves, collides</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8:</b>The parts of the simulation and how one decision goes round the loop. The brain only knows the world through the eyes: the simulator's exact object positions are never given to it, only to the body's safety net.</figcaption>
+      </figure>
+
+      <h4>The Body</h4>
+      <p>The body is probably the least interesting part of the simulation, as it is essentially just a floating box with a camera. We chose a box over a quadcopter with four individual motors because it still simulates the tilt and thrust mechanisms without us having to tune each motor, which would add a lot of complexity and wouldn’t help us test the circuits we added. We do lose motor lag and realistic motor limits, but the box still obeys real rigid-body physics, which means it can’t slide sideways and has to lean first. That’s why the dodge takes around a second: the box has to lean before it can move, and that lean time is still shorter than the roughly 2.7 seconds it takes the thrown object to reach the drone (4 m at 1.5 m/s). The box also keeps the simulation simple and repeatable, so any difference between two runs comes from the brain and not from the motors.</p>
+      <h4>The Eyes</h4>
+      <p>The eye is just a camera that sits in the middle of the body and looks out at the nose so that when the drone tilts to move the camera will also tilt. The camera captures a 320x240 picture at 30 frames per second because these are around the parameters of the drone that we are working with. Also the eye is the only way the brain can detect anything, similar to a fly. The simulation knows exactly where all the objects are relative to each other, but we purposefully made the brain unable to read those distances, because the circuit we are testing doesn’t measure depth, it only responds to how the picture changes. (The flight controller does have its own separate safety net that uses the real distances, which we get into in the next section.)</p>
+      <h4>The World</h4>
+      <p>As you’ve probably noticed, the world and all the obstacles are covered in stripes. Although it does add some razzle dazzle to the world, the real purpose of the stripes is for the drone to track its surroundings. A flat uncoloured object/wall doesn’t give the camera anything to track, as the drone “sees” by following patterns in the pictures. So, if there aren’t any patterns, then it’ll be as if the drone sees nothing. The floor is striped for the same reason, so the drone always has something to track.</p>
+      <div class="grid-2">
+        <figure><div class="fig-body"><img src="assets/floor_checker.png" alt="Checkerboard floor texture"></div><figcaption>Floor texture</figcaption></figure>
+        <figure><div class="fig-body"><img src="assets/obstacle_stripes.png" alt="Striped obstacle texture"></div><figcaption>Obstacle texture</figcaption></figure>
       </div>
-      <div class="card">
-        <small>BEHAVIOUR B</small>
-        <h3>Hunger &amp; feeding</h3>
-        <p>A custom vision model finds bananas and grades their ripeness. A "hunger" drive decays while a banana stays in view, and the drone hovers, "feeds", then lands.</p>
+      <h4>The Course (Walls and Box)</h4>
+      <p>We simulated 2 long parallel walls and a box that sits in the middle for initial testing to make sure the drone can move around and avoid the walls and the box in the middle and make it to the finish line (a green marker on the opposite side of the walls) autonomously. The finish line is 16 meters from the start, and each run begins from a slightly different sideways position so the drone can’t just memorize one path.</p>
+      <h4>The Thrown Block (Escape Neuron Test)</h4>
+      <p>We then later added a way to spawn a block in front of the drone with a mouse click, which flies straight back at it to simulate the escape neuron. So, when you click the mouse, a striped block spawns 4 meters in the direction the drone is facing and flies at it at 1.5 m/s, which gives the drone just under 3 seconds to react. If the drone dodges successfully, then it disappears, but if there are any collisions, then the drone will hover and land. This way, we can track where and how the crash happened instead of seeing the drone bounce around the world. Every throw is also identical, which we could never get from lunging at the real drone.</p>
+      <h4>The Banana (Model Test)</h4>
+      <p>And finally, the banana model testing. For this, we just stuck a jpeg onto a flat card and then connected the model to the eyes of the drone to test if it would be able to recognize it. We used a photo instead of a 3D model because the model (YOLOv8n) never recognized the 3D version as a banana due to simulator graphics.</p>
+
+    <h3 id="simulation-limitations">Simulator Limitations</h3>
+      <p>It is impossible for the simulation to simulate the real environment 100%. As mentioned before, the box has no motor lag or motor limits. On top of that, there is no wind, the camera has no noise or motion blur, the lighting never changes, and the stripes are perfectly sharp, which is a lot cleaner than anything the real drone will see. That means a result in the simulation tells us the idea works and the code is correct, but it does not promise the same numbers on the real drone. To close that gap, we ran hundreds of tests with the real drone and fine-tuned the models accordingly; the simulation just served as a good starting point to test all of our code.</p>
+
+    <h3 id="simulation-settings">Settings at a glance</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Body</td><td>Box, 1.0 kg, 30 × 30 × 8 cm</td></tr>
+            <tr><td>Physics clock</td><td>240 Hz (about 4 ms)</td></tr>
+            <tr><td>Decision clock</td><td>30 Hz (33 ms), 8 physics ticks per decision</td></tr>
+            <tr><td>Camera</td><td>320 × 240, 75° field of view, sees from 0.05 m to 50 m</td></tr>
+            <tr><td>Finish line</td><td>16 m from the start</td></tr>
+            <tr><td>Test block</td><td>Spawns 4 m away, moves at 1.5 m/s</td></tr>
+            <tr><td>Crash response</td><td>Hover for 180 ticks (0.75 s), then land</td></tr>
+            <tr><td>Max speed / tilt / yaw rate</td><td>2.0 m/s / 0.45 rad (about 26°) / 1.5 rad/s</td></tr>
+            <tr><td>Safety distances</td><td>Within 0.6 m: no moving forward. Within 0.3 m: back away at 0.25 m/s. Only obstacles within 70° of the nose count.</td></tr>
+            <tr><td>Real drone</td><td>DJI Tello, about 80 g, 960 × 720 video at 30 fps, 82.6° diagonal field of view (55.6° vertical)</td></tr>
+          </tbody>
+        </table>
       </div>
-    </div>
-  </section>
-
-  <section id="results">
-    <h2><span class="sec">4</span>Results so far</h2>
-    <p>Our most complete real-world test is a 60-second autonomous flight on the physical Tello with the fly-brain controller in the loop. Escapes were triggered by swatting at the drone by hand.</p>
-    <div class="stats">
-      <div class="stat"><b>274</b><span>connectome neurons simulated</span></div>
-      <div class="stat"><b>7,973</b><span>synaptic connections in the circuit</span></div>
-      <div class="stat"><b>19</b><span>escape events in a 60 s real flight</span></div>
-      <div class="stat"><b>20 ms</b><span>brain step, inside a 33 ms budget</span></div>
-    </div>
-    <p class="small muted">Source: <code>Testing/tello_escape_flight_test.log</code> (1,560 processed frames) and <code>Testing/README.md</code>. The swats were not scored against ground truth, so these show the controller running on hardware, not a benchmark.</p>
-  </section>
-
-  <section id="deep-dives">
-    <h2><span class="sec">5</span>Deep dives</h2>
-    <div class="cards">
-      <a class="card" href="banana.html">
-        <small>01</small>
-        <h3>Banana recognition network</h3>
-        <p>YOLOv8n detection and a MobileNetV2 ripeness classifier trained on 3,931 images across 6 classes.</p>
-      </a>
-      <a class="card" href="brain.html">
-        <small>02</small>
-        <h3>Fly-brain neural pathways</h3>
-        <p>The LC4/LPLC2 → DNp01/03/06 looming circuit, LIF dynamics, and how spikes become commands.</p>
-      </a>
-      <a class="card" href="sdk.html">
-        <small>03</small>
-        <h3>The drone</h3>
-        <p>djitellopy, RC control, the video pipeline, unit conversion, and the safety systems for real flight.</p>
-      </a>
-      <a class="card" href="sim.html">
-        <small>04</small>
-        <h3>PyBullet simulation</h3>
-        <p>A 240 Hz physics sandbox with a PID flight stack and an obstacle course, used to develop the brain safely.</p>
-      </a>
-    </div>
-  </section>
-
-  <section id="limitations">
-    <h2><span class="sec">6</span>Limitations &amp; future work</h2>
-    <ul>
-      <li><strong>Hand-tuned readout.</strong> The saturation constants that map spike rates to commands (42, 60 and 30 Hz) were tuned by hand, not derived from fly physiology.</li>
-      <li><strong>A slice of the brain, not the whole brain.</strong> We simulate a 274-neuron looming circuit, not the full connectome, to fit the real-time budget.</li>
-      <li><strong>No GPS or position sensing.</strong> On the Tello, position is dead-reckoned from commanded velocity.</li>
-      <li><strong>Evaluation.</strong> We have not yet run systematic, scored trials in simulation or on hardware. That is the next milestone.</li>
-      <li><strong>Separate behaviours.</strong> Hunger and feeding is currently a hand-written state machine rather than a connectome circuit.</li>
-    </ul>
-  </section>
-
-  <section id="team">
-    <h2><span class="sec">7</span>Team</h2>
-    <div class="authors">
-      <div class="author"><div class="author-name">Akshin Makkar</div><div class="author-role"><span class="todo">TODO: role</span></div></div>
-      <div class="author"><div class="author-name">Parth Joshi</div><div class="author-role"><span class="todo">TODO: role</span></div></div>
-      <div class="author"><div class="author-name">Amal Chalayil Sreekumar</div><div class="author-role"><span class="todo">TODO: role</span></div></div>
-    </div>
+      <p class="small muted">Values from <code>Simulator/pybullet_drone.py</code>, <code>Simulator/pybullet_simulator.py</code> and <code>Simulator/camera.py</code>. The Tello's mass is DJI's published spec.</p>
   </section>
 
   <section id="references">
-    <h2><span class="sec">R</span>References</h2>
+    <h2>References</h2>
     <ol class="refs">
       <li id="ref-shiu">Shiu, P. K. et al. <em>A leaky integrate-and-fire computational model based on the connectome of the entire adult Drosophila brain reveals insights into sensorimotor processing.</em> bioRxiv (2023). <a href="https://www.biorxiv.org/content/10.1101/2023.05.02.539144v1">doi:10.1101/2023.05.02.539144</a></li>
       <li id="ref-flywire">Dorkenwald, S. et al. <em>Neuronal wiring diagram of an adult brain.</em> Nature (2024). <a href="https://flywire.ai">flywire.ai</a></li>
       <li id="ref-brian">Stimberg, M., Brette, R. &amp; Goodman, D. F. M. <em>Brian 2, an intuitive and efficient neural simulator.</em> eLife (2019).</li>
+      <li id="ref-namiki">Namiki, S. et al. <em>A population of descending neurons that regulates the flight motor of Drosophila.</em> Current Biology (2022).</li>
+      <li id="ref-djitellopy">DJITelloPy: DJI Tello drone Python interface using the official Tello SDK. <a href="https://github.com/damiafuentes/DJITelloPy">github.com/damiafuentes/DJITelloPy</a></li>
+      <li id="ref-sdk">Ryze Tech. <em>Tello SDK 2.0 User Guide.</em></li>
+      <li id="ref-yolo">Jocher, G. et al. <em>Ultralytics YOLOv8.</em> (2023). <a href="https://github.com/ultralytics/ultralytics">github.com/ultralytics/ultralytics</a></li>
+      <li id="ref-mnv2">Sandler, M. et al. <em>MobileNetV2: Inverted Residuals and Linear Bottlenecks.</em> CVPR (2018).</li>
+      <li id="ref-coco">Lin, T.-Y. et al. <em>Microsoft COCO: Common Objects in Context.</em> ECCV (2014).</li>
+      <li id="ref-pybullet">Coumans, E. &amp; Bai, Y. <em>PyBullet, a Python module for physics simulation for games, robotics and machine learning.</em> (2016–). <a href="https://pybullet.org">pybullet.org</a></li>
     </ol>
   </section>
 </main>
