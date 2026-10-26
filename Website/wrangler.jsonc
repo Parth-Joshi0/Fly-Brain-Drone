@@ -1,0 +1,9 @@
+// Cloudflare Workers config: serves the Vite build output as a static site.
+// "name" must match the Worker's name in the Cloudflare dashboard.
+{
+  "name": "fly-brain-drone",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}
