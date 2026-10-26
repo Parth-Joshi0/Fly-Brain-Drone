@@ -145,7 +145,7 @@ sup.fn a { font-size: 12px; }
 .cm td.dark { color: var(--bg); font-weight: 600; }
 .cm th { font-weight: 500; }
 
-/* ---------- Videos: <section class="video-section"> > h2 + .video > iframe ---------- */
+/* ---------- Videos: <section class="video-section"> > h2 + .video > iframe or video ---------- */
 .video-section h2 { font-size: 2rem; }
 .video { position: relative; aspect-ratio: 16 / 9; margin: 1rem 0 .5rem; background: #000; }
-.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.video iframe, .video video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
