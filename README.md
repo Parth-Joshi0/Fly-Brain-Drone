@@ -2,6 +2,9 @@
 
 > **Note:** This project is still being actively developed and is bound to
 > change. The repo will be further cleaned up later.
+>
+> Youtube Video: https://youtu.be/yhFDCaL5JFg?si=iKESFgvh0M0kEqz3
+> Whitepaper: https://fruity-fly.com/
 
 A drone piloted by an actual fly brain. The autonomous controller is a
 [Brian2](https://brian2.readthedocs.io/) spiking network built from real
